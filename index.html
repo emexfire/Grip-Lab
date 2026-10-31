@@ -2921,7 +2921,8 @@ function mkSmoke(n,lifeK){const P=new Float32Array(n*3),C=new Float32Array(n*3),
    'float a=d*vA*smoothstep(-.05,.35*vSz*.5+.05,h);if(a<.004)discard;vec3 col=vC*mix(uShade,uLight,.55+.45*t.r);gl_FragColor=vec4(col,a);}'});
  const setScale=()=>{m.uniforms.uScale.value=innerHeight/(2*Math.tan((typeof cam!=='undefined'?cam.fov:60)*Math.PI/360))};setScale();addEventListener('resize',setScale);
  const pts=new THREE.Points(g,m);pts.frustumCulled=false;pts.renderOrder=2;scene.add(pts);let k=0;for(let i=0;i<n;i++)P[i*3+1]=-999;let fr=0,tt=0;
- return{P,A,S,n,mat:m,emit(x,y,z,vx,vy,vz,life,r,gC,b,big){const i=k=(k+1)%n;P[i*3]=x;P[i*3+1]=y;P[i*3+2]=z;GY[i]=y-.2;V[i*3]=vx;V[i*3+1]=vy;V[i*3+2]=vz;
+ const OW=new Int16Array(n).fill(-1);/* which car made each puff (own smoke never fogs that car's own view) */
+ return{P,A,S,n,OW,owner:-1,mat:m,emit(x,y,z,vx,vy,vz,life,r,gC,b,big){const i=k=(k+1)%n;OW[i]=this.owner;P[i*3]=x;P[i*3+1]=y;P[i*3+2]=z;GY[i]=y-.2;V[i*3]=vx;V[i*3+1]=vy;V[i*3+2]=vz;
    Lf[i]=L0[i]=life*lifeK*(.75+.5*Math.random());C[i*3]=r;C[i*3+1]=gC;C[i*3+2]=b;RO[i]=Math.random()*6.283;VA[i]=Math.floor(Math.random()*4);SP[i]=(Math.random()-.5)*.6;
    /* final size grows with how much smoke went into it */SM[i]=(big||1)*(1.6+1.6*Math.random());PH[i]=Math.random()*100;S[i]=.5;AG[i]=0},
   update(dt,grav,drag,wx,wz){wx=wx||0;wz=wz||0;fr++;tt+=dt;if((fr&31)===0)setScale();const stir=(fr&1)===0,CA=typeof cars!=='undefined'?cars:[];
@@ -3698,6 +3699,10 @@ const HIN={l:0,r:0,g:0,b:0,ot:0,u:0,d:0,c:0,sa:null,ga:null,ba:null},HPREV={u:0,
 const CTL={sSens:1};
 function humanInput(c){const assist=CFG.assist||'none';
  if(assist==='auto')return aiDrive(c,DT,R);
+ /* BOX: the player asked to pit. The entry window is the same as the AI's (the last stretch before the pit entry); from there the
+    car is driven down the pit lane, serviced and released automatically, then handed back. (With steering assist this already
+    happened inside aiDrive; without assists nothing ever started the stop) */
+ if(c.pitReq&&!c.pitPh&&R.phase!=='formation'&&R.phase!=='grid'){const rel=relOf(c.idx),lt=c.lt;if(rel>=N-40&&(rel<N-14||lt>HW-2.5)&&lt>-(HW+2)){c.pitPh=1;const mate=R.cars.find(o=>o!==c&&o.team===c.team&&(o.pitPh===1||o.pitPh===2)&&!o.park);c.stopRel=RB(c.team)-(mate?1.95:0)}}
  /* steering: an analog source (slider, tilt) when there is one, else the buttons, eased in at a rate set by the sensitivity */
  let man;if(HIN.sa!=null&&!HIN.l&&!HIN.r)man=HIN.sa;else{const k=CTL.sSens||1,tgt=(HIN.l-HIN.r)*Math.min(1,.4+.6*k),rate=(tgt===0?10:7)*k;c._sb=(c._sb||0)+cl(tgt-(c._sb||0),-rate*DT,rate*DT);man=c._sb}
  const thr=HIN.ga!=null?Math.max(HIN.ga,HIN.g):HIN.g,brk=HIN.ba!=null?Math.max(HIN.ba,HIN.b):HIN.b;let inp={s:man,g:thr,b:brk};
@@ -3932,7 +3937,7 @@ function groundPose(c){const cs=Math.cos(c.th),sn=Math.sin(c.th),a=1.8,b=.8,i=c.
  const hm=gAt(c.x,c.y,i),avg=(hfl+hfr+hrl+hrr)/4;return{z:Math.max(avg,hm-.02),pitch:Math.atan2((hfl+hfr)-(hrl+hrr),2*2*a),roll:Math.atan2((hfl+hrl)-(hfr+hrr),2*2*b),crest:hm-avg}}
 const _wv=new THREE.Vector3(),_wv2=new THREE.Vector3(),_wv3=new THREE.Vector3(),_up=new THREE.Vector3(0,1,0),WK=['fl','fr','rl','rr'];
 const _rbM=new THREE.Matrix4(),_rbR=new THREE.Matrix4(),_rbC=new THREE.Matrix4().set(1,0,0,0, 0,0,1,0, 0,-1,0,0, 0,0,0,1),_rbCt=new THREE.Matrix4().set(1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1),_rbO=new THREE.Vector3();
-function updCar(c,v,dt){const g=v.g;g.visible=!c.gone&&!c._lcHide;if(c.gone||c._lcHide)return;
+function updCar(c,v,dt){const g=v.g;SMOKE.owner=c.k;g.visible=!c.gone&&!c._lcHide;if(c.gone||c._lcHide)return;
  if(c.dentV!==v._dv){v._dv=c.dentV;for(const m of [v.mt.paint,v.mt.carb]){const D=m.userData.D;if(!D)continue;const L=c.dents||[];for(let i=0;i<DENT_N;i++){const d=L[i];if(d){D.uDent.value[i].set(d.x,d.y,d.z,d.r);D.uDentD.value[i]=d.d}else{D.uDent.value[i].set(0,0,0,0);D.uDentD.value[i]=0}}}}
  {const d=c.bodyDirt||0;if(Math.abs(d-(v._dirt||0))>.01){v._dirt=d;v.mt.paint.color.setRGB(1-.26*d,1-.3*d,1-.38*d);v.mt.paint.shininess=110-120*d;v.mt.paint.reflectivity=.26*(1-d)}}
  let z;if(c.park){z=TEAM_FR[c.team].p[1]+(c.push||Math.abs(c.lt)>GL0||relOf(c.idx)>ZL?.06:.05);c._gp=null}else{const gp=groundPose(c),k=Math.min(1,dt*14);
@@ -4026,7 +4031,7 @@ function updCar(c,v,dt){const g=v.g;g.visible=!c.gone&&!c._lcHide;if(c.gone||c._
      while(m-->0){const jx=(Math.random()-.5)*.5,jz=sdz*Math.random()*.25;SMOKE.emit(x+cs*jx+sn*jz,z+.22,-(y+sn*jx-cs*jz),c.vx*cs*kk-c.vy*sn*kk+(Math.random()-.5)*1.2,.4+Math.random()*.6,-(c.vx*sn*kk+c.vy*cs*kk)+(Math.random()-.5)*1.2,life,col,col,col*1.02,(big||1)*(1+.15*Math.min(4,k)))}};
    const f=Math.min(1,dt*60),ay=c.ay||0,inside=ay>0?0:1,ws=c.wspin||0;
    if(ws>.12){const dif=((c.setup||SETUP0).x||0),bias=Math.abs(ay)>8?(.5-.35*(1-(dif+1)/2)):0;puff(2+inside,f*ws*(1.6+bias*2),.93,3);puff(3-inside,f*ws*(1.6-bias*2),.93,3)}
-   if(c.lock){const lk=Math.min(1,sp/25);if(Math.abs(ay)<6){puff(0,f*3.4*lk,.98,3.4,2.3);puff(1,f*3.4*lk,.98,3.4,2.3)}else puff(inside,f*4.5*lk,.98,3.4,2.5)}
+   /* lock-up smoke: clearly visible, but a flat-spotting front tyre makes a plume, not a wall */if(c.lock){const lk=Math.min(1,sp/25);if(Math.abs(ay)<6){puff(0,f*2.4*lk,.98,2.8,1.6);puff(1,f*2.4*lk,.98,2.8,1.6)}else puff(inside,f*3.2*lk,.98,2.8,1.7)}
    const sr=Math.abs(c.ar)-.16,sf=Math.abs(c.af)-.2;if(sr>0){const k=f*Math.min(2.6,sr*16);puff(2,k*.7,.9,1.6);puff(3,k*.7,.9,1.6)}if(sf>0&&sp>15){const k=f*Math.min(1.2,sf*8);puff(inside,k*.7,.88,1.2)}
    if(c.bt>820&&near){const k=f*Math.min(.6,(c.bt-820)/450)*(sp<25?1.4:.6);for(let w=0;w<4;w++)puff(w,k*(w<2?1:.6),.62,1.1)}}
   if((c.sL===3||c.sR===3))em(RA,0,2,.78,.66,.48,1.4);else if(c.sL===2&&c.sR===2&&Math.random()<.4)em(RA,0,1,.55,.45,.3,.9);
@@ -4303,11 +4308,12 @@ let lastT=performance.now(),acc=0,fpsN=0,fpsT=0;
 const SKYS={occ:0,cl:-1};
 /* inside a smoke cloud: the view whites out and the far end of it disappears, the way flying through a cloud looks */
 const SMK={d:0,el:null};
-function smokeFog(dt){const P=SMOKE.P,A=SMOKE.A,S=SMOKE.S,cp=cam.position;let d=0;
- for(let i=0;i<SMOKE.n;i++){if(A[i]<=.01)continue;const dx=P[i*3]-cp.x,dy=P[i*3+1]-cp.y,dz=P[i*3+2]-cp.z,r=S[i]*.6+1.2,q=dx*dx+dy*dy+dz*dz;if(q<r*r)d+=A[i]*(1-Math.sqrt(q)/r)}
+function smokeFog(dt){const P=SMOKE.P,A=SMOKE.A,S=SMOKE.S,OW=SMOKE.OW,me=VIEW.car?VIEW.car.k:-2,cp=cam.position;let d=0;
+ /* driving into another car's cloud fogs the view; the followed car's own smoke trails behind it, so it never fogs its own camera */
+ for(let i=0;i<SMOKE.n;i++){if(A[i]<=.01||OW[i]===me)continue;const dx=P[i*3]-cp.x,dy=P[i*3+1]-cp.y,dz=P[i*3+2]-cp.z,r=S[i]*.6+1.2,q=dx*dx+dy*dy+dz*dz;if(q<r*r)d+=A[i]*(1-Math.sqrt(q)/r)}
  d=Math.min(1,d*.55);SMK.d+=(d-SMK.d)*Math.min(1,dt*(d>SMK.d?6:2.5));
  if(!SMK.el){SMK.el=document.createElement('div');SMK.el.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:3;background:radial-gradient(ellipse at 50% 55%,rgba(232,232,230,.55),rgba(214,214,212,.95));opacity:0';document.body.appendChild(SMK.el)}
- SMK.el.style.opacity=(SMK.d*.85).toFixed(3);if(SMK.d>.02){scene.fog.near=Math.min(scene.fog.near,lerp(scene.fog.near,2,SMK.d));scene.fog.far=Math.min(scene.fog.far,lerp(scene.fog.far,45,SMK.d))}}
+ SMK.el.style.opacity=(SMK.d*.6).toFixed(3);if(SMK.d>.02){scene.fog.near=Math.min(scene.fog.near,lerp(scene.fog.near,2,SMK.d));scene.fog.far=Math.min(scene.fog.far,lerp(scene.fog.far,45,SMK.d))}}
 function skyFrame(dt){const c=WX.cloud,u=SKYU,ws=(WX.ws||0)*(WX.g||1)*3.2+1.5,wx=Math.cos(WX.wd||0),wy=Math.sin(WX.wd||0);
  u.uCloud.value=c;u.uOff.value.x-=wx*ws*dt*.00012;u.uOff.value.y+=wy*ws*dt*.00012;
  const hz=u.uHaze.value;hz.setRGB(.76-.02*c,.84-.07*c,.92-.12*c);scene.fog.color.copy(hz);scene.background=hz;
