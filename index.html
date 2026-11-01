@@ -137,7 +137,7 @@ body,button,input,h1,h2,h3,table,#tower,#me,.tm,#spd,#gear,#sess,#rc,#radio,.opt
 .sh button.cls{text-align:center;background:var(--acc);border:0;font-weight:800;letter-spacing:.08em;margin-top:8px}
 .srow{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:12px;padding:9px 12px 8px}
 .srow label{display:flex;justify-content:space-between;font-weight:700;font-size:13px}.srow label b{font-style:italic;font-weight:900;color:var(--gold)}
-.srow .ends{display:flex;justify-content:space-between;font-size:10px;color:var(--mute);margin-top:1px}
+.srow .ends{display:flex;justify-content:space-between;font-size:10px;color:var(--mute);margin-top:1px}.srow .sdesc{font-size:10.5px;line-height:1.35;color:#c4ccd6;margin-top:4px}
 .srow input[type=range]{width:100%;margin:8px 0 2px;-webkit-appearance:none;appearance:none;height:28px;background:transparent;touch-action:pan-y}
 .srow input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:linear-gradient(90deg,#0a84ff,#2b313b 50%,#e10600)}
 .srow input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:linear-gradient(90deg,#0a84ff,#2b313b 50%,#e10600)}
@@ -183,7 +183,7 @@ body.thrS #kg,body.brkS #kb,body.strS #kl,body.strS #kr,body.strT #kl,body.strT 
 #warn.on{display:block}#warn small{display:block;font:700 10.5px/1.3 system-ui;letter-spacing:.02em;opacity:.9;margin-top:2px}
 #warn.r{background:#e10600;color:#fff;animation:wflash .7s infinite}#warn.a{background:#ffaa00;color:#111}#warn.y{background:#ffd400;color:#111}#warn.b{background:rgba(20,70,190,.92);color:#fff}#warn.g{background:#1fae4b;color:#fff}
 @keyframes wflash{50%{filter:brightness(1.4)}}
-.hudHide{visibility:hidden!important}body.hudEd .hudHide{visibility:visible!important;opacity:.3}
+.hudHide{visibility:hidden!important}body.replay #warn,body.replay #kc{display:none!important}body.hudEd .hudHide{visibility:visible!important;opacity:.3}
 body.hudEd #kc{display:block}body.hudEd #warn{display:block}body.hudEd #lights{display:flex}
 #hudEd{position:fixed;inset:0;z-index:80;display:none;touch-action:none;background:rgba(0,0,0,.12)}body.hudEd #hudEd{display:block}
 #hudEd .bar{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);display:flex;gap:6px;background:rgba(10,12,16,.94);padding:6px;border-radius:12px;border:1px solid rgba(255,255,255,.18);z-index:2}
@@ -428,7 +428,7 @@ const ersTaper=(v,ot)=>ot?cl((99-v)/(99-93.6),0,1):cl((98.6-v)/(98.6-80.6),0,1);
 const VRL=[0,23,33.5,44.5,55.5,66.5,78,89.5,101],RPM_LIM=12500,RPM_PK=[[3500,.3],[6500,.62],[8500,.83],[10000,.94],[11000,.99],[11800,1],[12300,.99],[12500,.96]];
 const rpmK=r=>{if(r>RPM_LIM+40)return .08;if(r<=RPM_PK[0][0])return RPM_PK[0][1];for(let k=0;k<RPM_PK.length-1;k++)if(r<=RPM_PK[k+1][0]){const u=(r-RPM_PK[k][0])/(RPM_PK[k+1][0]-RPM_PK[k][0]);return RPM_PK[k][1]+(RPM_PK[k+1][1]-RPM_PK[k][1])*u}return .96};
 /* gear ratios: one set per car, set by the final-drive choice (setup 'g': short = quicker acceleration, long = higher top speed) */
-const gv=c=>{const k=(c.setup&&c.setup.g)||0;if(c._gvk!==k){c._gvk=k;c._gv=VRL.map(x=>x*(1+.055*k))}return c._gv};
+const gv=c=>{const k=(c.setup&&c.setup.g)||0;if(c._gvk!==k){c._gvk=k;c._gv=VRL.map(x=>x*(1+.08*k))}return c._gv};
 const rpmAt=(c,g,v)=>{const vw=Math.max(0,v)+(c.wspin||0)*(5+.22*v);let r=RPM_LIM*vw/gv(c)[g];if(g<=2&&v<12)r=Math.max(r,4200+5200*(c.thr||0));return Math.max(3800,r)};
 /* the bot (or the automatic box) picks its gear: up near the top of the power band, earlier when the rears are spinning,
    in fuel-saving or behind the safety car; down as it slows so the next gear lands back in the band without over-revving */
@@ -466,11 +466,11 @@ const W3X=[A,A,-B,-B],W3Y=[.8,-.8,.78,-.78],I3P=900,I3R=260;
 function susp3D(c,dt,m,DFf,DFr,su){
  const S=c.s3||(c.s3={z:null,vz:0,p:0,vp:0,r:0,vr:0,x:[0,0,0,0],F:[0,0,0,0],xs:[0,0,0,0],rh:[0,0,0,0],air:0,bot:0});
  const cs=Math.cos(c.th),sn=Math.sin(c.th),sv=su.s||0,rh=.012*(su.r||0)+(c.dm.floor>.5?-.006:0);
- const kf=115e3*(1+.28*sv),kr=125e3*(1+.28*sv),K=[kf,kf,kr,kr],mc=m/4,C=K.map(k=>2*.62*Math.sqrt(k*mc));
+ const kf=115e3*(1+.4*sv),kr=125e3*(1+.4*sv),K=[kf,kf,kr,kr],mc=m/4,C=K.map(k=>2*.62*Math.sqrt(k*mc));
  /* the tyre is a stiff spring under each corner (in series with the suspension): it softens as it loses pressure,
     so a deflating corner sinks; it also grows a few millimetres at speed, lifting the car on the straights */
  const KT0=280e3,pres=c.pres||[1,1,1,1],vv=Math.hypot(c.vx,c.vy),KE=K.map((k0,q)=>{const kp=k0*KT0/(KT0-k0),kt=KT0*(.1+.9*Math.max(0,Math.min(1,pres[q])));return kp*kt/(kp+kt)}),GROW=pres.map(p=>.006*(vv/90)*(vv/90)*Math.max(0,Math.min(1,p)));
- const kaf=62e3*(1+.6*(su.af||0)),kar=24e3*(1+.6*(su.ar||0));
+ const kaf=62e3*(1+.75*(su.af||0)),kar=24e3*(1+1.1*(su.ar||0));
  /* static corner loads at rest decide where the springs sit; the body rests at its design ride height */
  const cg=c.cgx||0,Ws=[m*G*(B+cg)/L/2,m*G*(B+cg)/L/2,m*G*(A-cg)/L/2,m*G*(A-cg)/L/2],HCr=HC+rh;
  const rc0=roadH(c.x,c.y,c.idx);
@@ -611,7 +611,7 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
  if(Math.abs(simT-AIRT)>2){AIRT=simT;AIRK=airK()}
  const wnd=c.isSC?[0,0]:windAt(c.idx),wxl=wnd[0]*Math.cos(c.th)+wnd[1]*Math.sin(c.th),wyl=-wnd[0]*Math.sin(c.th)+wnd[1]*Math.cos(c.th);
  const ux=c.vx-wxl,uy=c.vy-wyl,va=Math.hypot(ux,uy),vq=AIRK*Math.max(0,ux)*Math.max(0,ux);c.airV=ux;c.airY=uy;
- const frf=FRF+.025*su.b,kd=lerp(KDL,KD,ae)*(1-.35*dm.floor)*(c.dfK||1)*(1+.07*su.w)*(1-.035*su.r),DFf=kd*frf*(1-.75*dm.fw)*(1-.45*dty)*(arc?1.2:1),DFr=kd*(1-frf)*(1-.75*dm.rw)*(1-.2*dty)*(arc?1.2:1);
+ const frf=FRF+.04*(su.b||0),kd=lerp(KDL,KD,ae)*(1-.35*dm.floor)*(c.dfK||1)*(1+.12*(su.w||0))*(1-.06*(su.r||0))*(1+.025*(su.s||0)*Math.min(1,v/60)),DFf=kd*frf*(1-.75*dm.fw)*(1-.45*dty)*(arc?1.2:1),DFr=kd*(1-frf)*(1-.75*dm.rw)*(1-.2*dty)*(arc?1.2:1);
  const AE=PH3&&!c.isSC?aero3D(c,su,v):null,DFf3=AE?DFf*AE.f:DFf,DFr3=AE?DFr*AE.r:DFr;
  const bk=BK[c.idx],heB=bk?Math.cos(wrap(c.th-hd[c.idx])):0,Nz=Math.max(.25*m*G,m*(G+v*v*VK[c.idx])+(bk?m*Math.abs(c.ay||0)*Math.sin(Math.abs(bk)):0)),dF=m*c.ax*HC/L;
  let Fzf,Fzr,lsF=1,lsR=1,W4=null;
@@ -625,7 +625,7 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
  if(!c.pres)c.pres=[1,1,1,1];if(!c.prate)c.prate=[0,0,0,0];
  for(let k=0;k<4;k++){if(c.punct[k]){if(!c.prate[k])c.prate[k]=.5;c.pres[k]=Math.max(0,c.pres[k]-c.pres[k]*c.prate[k]*dt-.004*dt*v/30)}else if(c.pres[k]<1)c.pres[k]=1}
  const sL=SURF_GRIP[c.sL],sR=SURF_GRIP[c.sR],p=c.punct.map((x,k)=>x?Math.min(1,(1-c.pres[k])*1.15):0);
- const rbl=Math.min(1,(rubAt(c.idx,c.lt+.8)+rubAt(c.idx,c.lt-.8))/2),rgk=(1+.045*rbl)*surfGrip(surfT(c.idx,c.lt))*(1-.012*su.s)*(1-.05*(TRACK.marb||0)*Math.max(0,1-rbl*2.2));
+ const rbl=Math.min(1,(rubAt(c.idx,c.lt+.8)+rubAt(c.idx,c.lt-.8))/2),rgk=(1+.045*rbl)*surfGrip(surfT(c.idx,c.lt))*(1-.03*(su.s||0))*(1-.05*(TRACK.marb||0)*Math.max(0,1-rbl*2.2));
  const gF=rgk*(sL*(1-.5*dm.fl)*(1-.7*p[0])+sR*(1-.5*dm.fr)*(1-.7*p[1]))/2,gR=rgk*(sL*(1-.5*dm.rl)*(1-.7*p[2])+sR*(1-.5*dm.rr)*(1-.7*p[3]))/2;
  /* each tyre has its own temperature and wear: the axle grip is the load-weighted mix of its two tyres (the loaded outside tyre
     counts most in a corner) */
@@ -638,9 +638,10 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
  const ui=Math.min(1,Math.abs(c.ay||0)/(G*3.6)),cam=su.c||0,lng=Math.min(1,Math.abs(c.ax||0)/(G*3));
  const patch=a=>{const cp2=CMP[c.cmp],opt=-.15+.55*ui,cf=1-.05*(cam*.5-opt)*(cam*.5-opt)-.02*cam*lng*(1-ui),pr=1-.0024*Math.max(0,c.tt[a]-cp2.opt)-.0012*Math.max(0,cp2.opt-25-c.tt[a]),wr=1+.025*Math.min(c.tw[a],.6);return cl(cf*pr*wr,.8,1.04)};
  c.patch=[patch(0),patch(1)];
- const ackF=1+.035*(su.a||0)*(v<38?1:-.4)*Math.min(1,Math.abs(c.st)*3),casF=1+.018*(su.k||0)*Math.min(1,Math.abs(c.st)*2);
+ const ackF=1+.045*(su.a||0)*(v<38?1:-.45)*Math.min(1,Math.abs(c.st)*3),casF=1+.03*(su.k||0)*Math.min(1,Math.abs(c.st)*2),
+ /* camber: more negative camber gives more cornering grip once the car is loaded up, and less in a straight line (braking, traction) */camF=1+.035*cam*ui-.03*cam*lng*(1-ui),camR=1+.025*cam*ui-.03*cam*lng*(1-ui);
  /* dirt, grass and rubber picked up on the tyres cost grip until they wear off */const pk=c.pk,pdF=pk?(pk.d.length>2?(pk.d[0]+pk.d[1])/2:pk.d[0]):0,pdR=pk?(pk.d.length>2?(pk.d[2]+pk.d[3])/2:pk.d[1]):0,pkF=pk?1-.14*Math.min(1,pdF)-.06*Math.min(1,pk.r[0]):1,pkR=pk?1-.14*Math.min(1,pdR)-.06*Math.min(1,pk.r[1]):1;
- const fsp=Math.max(c.flat[0],c.flat[1]),muF=pkF*base*tf(0)*wf(0)*gF*(1-.3*fsp)*(1-.1*(c.unset||0))*Math.pow(c.patch[0],.6)*(1-.028*(su.af||0)*ui)*ackF*casF,muR=pkR*base*tf(1)*wf(1)*gR*KRm(v)*(1-.13*(c.unset||0))*Math.pow(c.patch[1],.6)*(1-.028*(su.ar||0)*ui);c.gk+=((Math.min(tf(0)*wf(0)*(1-.3*fsp),tf(1)*wf(1))*.75+(tf(0)*wf(0)+tf(1)*wf(1))*.125)*cp.g-c.gk)*Math.min(1,dt*2);
+ const fsp=Math.max(c.flat[0],c.flat[1]),muF=pkF*base*tf(0)*wf(0)*gF*(1-.3*fsp)*(1-.1*(c.unset||0))*Math.pow(c.patch[0],.6)*(1-.045*(su.af||0)*ui)*ackF*casF*camF,muR=pkR*base*tf(1)*wf(1)*gR*KRm(v)*(1-.13*(c.unset||0))*Math.pow(c.patch[1],.6)*(1-.05*(su.ar||0)*ui)*camR;c.gk+=((Math.min(tf(0)*wf(0)*(1-.3*fsp),tf(1)*wf(1))*.75+(tf(0)*wf(0)+tf(1)*wf(1))*.125)*cp.g-c.gk)*Math.min(1,dt*2);
  const muF3=muF*lsF,muR3=muR*lsR;
  /* slip angles. Going forwards: the usual small-angle form. Sliding sideways or backwards: the true angle between each
     wheel's rolling direction and its velocity, so the tyres keep scrubbing the car down instead of stopping it dead */
@@ -672,7 +673,7 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
   if(gi!==c.gear&&!c.isSC){const q=cl((c.gbQ||.85)*(1-.6*dm.gb),.3,1);c.shD=Math.sign(gi-c.gear);c.shT=simT;if(gi>c.gear){c.shiftCut=.015+.08*(1-q);c.shiftKick=.04+.22*(1-q)}else if(c.thr<.3&&!(typeof R!=='undefined'&&R.slow))c.dnKick=.03+.3*(1-q);c.gear=gi}else if(gi!==c.gear)c.gear=gi;
   /* engine speed and the power it makes in this gear */
   /* the power band limits drive where the engine (not the tyres or the torque limit) is the limit */
-  c.rpm=rpmAt(c,c.gear,Math.abs(c.vx));if(c.stall>0){c.stall-=dt;c.rpm=0;Fdr=0}else if(!c.isSC){const pk=rpmK(c.rpm),pe=(P-dep)*pk*1.012+dep;Fdr=c.thr*Math.min(13500*(c.rpm>RPM_LIM+40?.08:1),pe/Math.max(v,3))}
+  c.rpm=rpmAt(c,c.gear,Math.abs(c.vx));if(c.stall>0){c.stall-=dt;c.rpm=0;Fdr=0}else if(!c.isSC){const pk=rpmK(c.rpm),pe=(P-dep)*pk*1.012+dep;Fdr=c.thr*Math.min(13500*(1-.07*((su.g)||0))*(c.rpm>RPM_LIM+40?.08:1),pe/Math.max(v,3))}
   /* clutch held at a standstill: no drive; the throttle only revs the engine (launch mode holds the launch revs) */if(inp.cl&&!c.isSC){Fdr=0;const rg=inp.g||0;c.rpm=rg>.6&&inp.la?9600+Math.sin(simT*45)*140:3800+rg*(RPM_LIM+120-3800)}
   c.revLim=c.rpm>RPM_LIM;
   if(c.shiftCut>0){c.shiftCut-=dt;Fdr*=.15}else if(c.shiftKick>0){Fdr*=1+c.shiftKick*2.2;c.shiftKick=Math.max(0,c.shiftKick-dt*1.6)}}
@@ -701,7 +702,7 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
  /* a locked tyre grinds a flat patch into the tread: inside wheel first in a corner, both in a straight line */
  if(c.lock&&v>8){const k=dt*Math.min(1.4,v/55)*.3,ay=c.ay||0;if(Math.abs(ay)<6){c.flat[0]=Math.min(1,c.flat[0]+k*.6);c.flat[1]=Math.min(1,c.flat[1]+k*.6)}else{const w=ay>0?0:1;c.flat[w]=Math.min(1,c.flat[w]+k)}
   if(!c.fsMsg&&Math.max(c.flat[0],c.flat[1])>.35){c.fsMsg=1;c.ev&&c.ev('flat')}}
- const dif=su.x||0,room=((c.tc||inp.lc)?Math.max(v<6?.6:.15,Math.sqrt(Math.max(0,1-(Fyr0/Fmr)**2))):1)*(1+.09*dif*(1-ui*.5));
+ const dif=su.x||0,room=((c.tc||inp.lc)?Math.max(v<6?.6:.15,Math.sqrt(Math.max(0,1-(Fyr0/Fmr)**2))):1)*(1+.16*dif*(1-ui*.5));
  const dL=(dif+1)/2,dK=W4?dL+(1-dL)*(.55+.45*Math.max(0,wfR)):1-.3*ui*(1-dL),capT=.95*Fmr*dK*Math.max(.18,Math.sqrt(Math.max(0,1-(Fyr0/Fmr)**2)))*(1+.25*Math.max(0,1-(c.thrD||0)/6));
  c.thrD=((c.thrD||0)*.8+Math.max(0,c.thr-(c.thrP??c.thr))/dt*.2);c.thrP=c.thr;
  /* burnout: throttle and brake together at (almost) a standstill: the fronts hold the car, the rears spin up and cook */
@@ -738,7 +739,7 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
   /* a misaligned or bent wheel scrubs: extra wear and heat on that tyre */
   if(c.align)for(let i=0;i<4;i++){const al=c.align[i],sc=Math.abs(al.toe)*3+Math.abs(al.cam)+al.bend*.02;if(sc>.003&&v>5){c.tw4[i]=Math.min(1,c.tw4[i]+sc*v*dt*2.5e-5*(CFG.wearScale||1));c.tt4[i]+=sc*v*dt*.04}}
   c._twP=[c.tw[0],c.tw[1]]}
- {const amb=TRACK.T+25,cool=(.0032+.00085*v)*(1-.32*dty)*(1+.3*(su.d||0));c.bt+=(Bm*v*1.25e-4*(c.isSC?.6:1)-(c.bt-amb)*cool*(1+(c.bt>700?.3:0)))*dt;
+ {const amb=TRACK.T+25,cool=(.0032+.00085*v)*(1-.32*dty)*(1+.45*(su.d||0));c.bt+=(Bm*v*1.25e-4*(c.isSC?.6:1)-(c.bt-amb)*cool*(1+(c.bt>700?.3:0)))*dt;
   if(c.lateFail&&!c.out&&SIMT()>c.lateFail.t){retire(c,c.lateFail.why);c.lateFail=null}
   /* badly damaged parts can fail on their own */
   if(!c.out&&!c.isSC){const ws=.9*Math.max(c.dm.fl,c.dm.fr,c.dm.rl,c.dm.rr),wd=Math.max(ws,c.dm.eng,c.dm.gb);if(wd>.75&&rnd()<dt*(wd-.75)*.006)retire(c,c.dm.eng>=wd?'Power unit':c.dm.gb>=wd?'Gearbox':'Suspension')}
@@ -754,16 +755,16 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
  if(c.tw[1]>.985&&!PU[2]&&rnd()<dt*.2){blow(2);blow(3);c.ev&&c.ev('punct')}
  /* forces */
  const cd=Math.cos(c.dl),sd=Math.sin(c.dl);
- /* in the tow the car ahead punches the hole: well inside the slipstream the drag all but disappears */const CD=lerp(CDL,CDH,ae)*(1-.97*Math.min(1,tw*1.7))*(1+.055*su.w)*(1+.015*(su.d||0))-.12*dm.rw+.06*dm.floor+.05*dm.fw+(p[0]+p[1]+p[2]+p[3])*.08;
+ /* in the tow the car ahead punches the hole: well inside the slipstream the drag all but disappears */const CD=lerp(CDL,CDH,ae)*(1-.97*Math.min(1,tw*1.7))*(1+.09*(su.w||0))*(1+.025*(su.d||0))-.12*dm.rw+.06*dm.floor+.05*dm.fw+(p[0]+p[1]+p[2]+p[3])*.08;
  const sdrag=(SURF_DRAG[c.sL]+SURF_DRAG[c.sR])/2*cl(c.vx/5,-1,1);
  const drag=AIRK*CD*va*ux+160*cl(c.vx,-1,1)+sdrag,sideAir=-AIRK*2.4*va*uy;
  const Fx=Fxf*cd-Fyf*sd+Fxr-drag-m*G*SL[c.idx],Fy=Fyf*cd+Fxf*sd+Fyr-.3*v*c.vy+sideAir+(bk?m*G*Math.sin(bk)*heB:0);
- const Mz=-.35*sideAir+(Af*(Fyf*cd+Fxf*sd)-Bf*Fyr)*(1+.035*(-dif)*ui*(c.thr<.3?1:.5))-c.r*Math.max(0,Fxr)*.25*(1+.7*dif);
+ const Mz=-.35*sideAir+(Af*(Fyf*cd+Fxf*sd)-Bf*Fyr)*(1+.08*(-dif)*ui*(c.thr<.3?1:.5))-c.r*Math.max(0,Fxr)*.25*(1+.7*dif);
  c.ax+=(Fx/m-c.ax)*Math.min(1,dt*8);c.ay=Fy/m;
  c.vx+=(Fx/m+c.vy*c.r)*dt;c.vy+=(Fy/m-c.vx*c.r)*dt;c.r+=Mz/c.IZ*dt;
  /* half in the wake: one side of the front wing loses more load than the other, the nose twitches towards the clean side */if(dLR&&!c.isSC)c.r+=dLR*(DFf||0)*v*v*.018/c.IZ*dt;
  /* chassis yaw damping fades once the car is really sliding: a spin carries on rotating until the tyres stop it */
- c.r-=c.r*(arc?1.2:(.45+Math.min(.5,v*.007))*(1+.05*((su.af||0)+(su.ar||0))+.05*(su.k||0)))*(1-.55*Math.min(1,Math.max(0,Math.abs(ar)-.15)/.4))*dt;
+ c.r-=c.r*(arc?1.2:(.45+Math.min(.5,v*.007))*(1+.05*((su.af||0)+(su.ar||0))+.08*(su.k||0)))*(1-.55*Math.min(1,Math.max(0,Math.abs(ar)-.15)/.4))*dt;
  /* a spinning car scrubs its rotation away through the tyres: the more grip under it, the quicker the spin dies */
  if(Math.abs(c.r)>.8)c.r-=c.r*Math.min(.9,(Fzf*muF+Fzr*muR)*.045/c.IZ)*dt;
  /* kerbs: rumble always, a hard strike can unsettle the car and hurt the suspension */
@@ -1274,11 +1275,11 @@ function aiDrive(c,dt,R){{const d=c.dm;/* the driver feels the damage: corner sp
  if(Math.abs(c.ar)>.09&&Math.abs(c.ar)>Math.abs(c.af)+.03){s=cl(s+(c.ar-Math.sign(c.ar)*.09)*3.5,-1,1);g=Math.min(g,.4)}
  const he=wrap(hd[bi]-c.th);
  /* marshals: a car beached in the gravel gets pushed back to the edge */
- c.stuckT=(v<(c.sL>=3||c.sR>=3?.7:1.5)&&!c.hold&&!c.threat&&(!R.slow||Math.abs(lt)>HW+1||v<.6)&&g>.2&&tv>3&&(c.capV==null||c.capV>3)&&(!c.pitPh||(c.pitPh===1&&!inPitLane(c.idx,c.lt)&&Math.abs(c.lt)>HW+.5))&&!inPitLane(c.idx,c.lt)&&!(relOf(c.idx)<ZL+10&&c.lt>HW+1&&c.lt<BL+6)&&(R.phase==='run'||(R.phase==='formation'&&c.fmGone&&!c.fmDone)))?(c.stuckT||0)+dt:0;
+ c.stuckT=(v<(c.sL>=3||c.sR>=3?.7:1.5)&&!c.hold&&!c.threat&&(!R.slow||Math.abs(lt)>HW+1||v<1.2)&&g>.2&&tv>3&&(c.capV==null||c.capV>3)&&(!c.pitPh||(c.pitPh===1&&!inPitLane(c.idx,c.lt)))&&!inPitLane(c.idx,c.lt)&&!(relOf(c.idx)<ZL+10&&c.lt>HW+1&&c.lt<BL+6)&&(R.phase==='run'||(R.phase==='formation'&&c.fmGone&&!c.fmDone)))?(c.stuckT||0)+dt:0;
 /* stuck (facing a wall, beached, spun): reverse out, then drive back; too long and the car is out */
  if(c.stuckT>2.4&&!c.rec&&!c.hold&&(!c.human||c.ai)){c.stuckT=0;c.recN=(c.recN||0)+1;const he2=wrap(hd[bi]-c.th);c.rec={k:'rev',t:rr(1.8,2.8),s:-Math.sign(he2||(lt>0?1:-1))};c.ev&&c.ev('reverse')}
  const offNow=(c.sL>=2&&c.sR>=2)||Math.abs(lt)>HW+.5;if(!offNow&&(v>12||(v>4&&(c.dmgSlow||c.capV<26)))){c.recN=0;c.recT=0}/* a damaged car crawling home on the road is not stuck */else if(c.recN>0)c.recT=(c.recT||0)+dt;
- if((c.recT>45||c.recN>7)&&R.phase==='run'&&!c.isSC&&(!c.human||c.ai)){retire(c,'Stuck');return{s:0,g:0,b:1}}
+ if((c.recT>45||c.recN>7)&&R.phase==='run'&&!c.isSC&&(!c.human||c.ai)){retire(c,(c.broke.fw&&c.broke.rw)||Math.max(...Object.values(c.dm))>.6?'Damage':'Stuck');return{s:0,g:0,b:1}}
  /* deep in a run-off and slow: drive back at an angle towards the track (pointing along the track makes no ground in gravel), wait near the edge if traffic is coming */
  if(!c.pitPh&&!c.isSC&&c.sL>=2&&c.sR>=2&&Math.abs(lt)>HW+2.5&&v<9&&R.phase==='run'&&(!c.human||c.ai)){const near=Math.abs(lt)<HW+4.2,wait=c.threat&&near,tgt=hd[bi]-Math.sign(lt)*(wait?0:near?.45:.8);
   c.roT=v<.5&&!wait?(c.roT||0)+dt:0;if(c.roT>3&&!c.rec){c.roT=0;c.recN=(c.recN||0)+1;c.rec={k:'rev',t:rr(1.5,2.5),s:-Math.sign(wrap(tgt-c.th)||1)}}
@@ -1785,7 +1786,7 @@ function debrisContact(){for(const d of debris){if(d.dead||d.z>.6||Math.abs(d.lt
  for(const c of R.all){if(c.gone||c.park||c.pitPh)continue;const dx=d.x-c.x,dy=d.y-c.y;if(dx*dx+dy*dy>9)continue;const cs=Math.cos(c.th),sn=Math.sin(c.th),fx=dx*cs+dy*sn,ly=-dx*sn+dy*cs,v=Math.hypot(c.vx,c.vy);if(v<4)continue;
   for(let w=0;w<4;w++){const wx=w<2?A:-B,wy=w%2?-.8:.8;if(Math.abs(fx-wx)<.45&&Math.abs(ly-wy)<.4){
     const pk=d.part==='rubber'?.003:d.part==='wheel'?.1:d.part==='shard'?.06:.025;if(!c.punct[w]&&!c.isSC&&rnd()<pk*Math.min(1,v/40)){c.punct[w]=1;if(!c.prate)c.prate=[0,0,0,0];c.prate[w]=d.part==='shard'||d.part==='wheel'?rr(.35,1.2):rr(.025,.12);R.dPunct=(R.dPunct||0)+1;c.ev&&c.ev('punct');if(c.ai)c.pitReq=true}
-    if(d.part==='wheel'){applyHit(c,d.x,d.y,3000+v*120,'debris')}
+    /* a loose wheel is heavy enough to break a wing or bend suspension, not to tear another car's wheel off (that chained into pile-ups) */if(d.part==='wheel'&&simT-((d.hitT||(d.hitT={}))[c.k]??-9)>1){d.hitT[c.k]=simT;/* one strike per car, not one every physics step while it is under the car */applyHit(c,d.x,d.y,1800+v*70,'debris')}
     const kl=(ly>0?-1:1)*rr(3,8);d.rest=0;d.vx=c.vx*cs*.5-sn*kl;d.vy=c.vx*sn*.5+cs*kl;d.vz=rr(1,3);d.w=rr(-8,8);d.wx=rr(-8,8);break}}}}}
 /* ---------- timing ---------- */
 function timing(c,pi){if(c.park)return;const i=c.idx,fwd=W(i-pi)<N/2;
@@ -3561,7 +3562,7 @@ function rpFrame(dt){if(!RPL.on)return;const F=RPL.fr;if(RPL.play){RPL.ph+=dt*RP
 /* ---- hot-lap compare (qualifying only, in replay): the session pauses and the followed car drives its best lap again, with a
    translucent ghost of another car's best lap beside it, both started together from the line, with the live gap between them.
    Nothing here touches the race: in a race cars are always solid */
-const GHOSTM=typeof THREE!=='undefined'?new THREE.MeshBasicMaterial({color:0x9fd8ff,transparent:true,opacity:.34,depthWrite:false}):null;
+const GHOSTM=typeof THREE!=='undefined'?new THREE.MeshBasicMaterial({color:0x9fd8ff,transparent:true,opacity:.42,depthWrite:false}):null;
 const LC={on:false,t:0,play:true,spd:1,A:null,B:null,gMesh:null,gCode:null,save:null,prevSpeed:1,ia:0};
 const isQ=()=>/^Q/.test(R.type||'');
 /* cumulative distance along a stored path [t,x,y,th]*n */
@@ -3581,7 +3582,10 @@ function lcStop(){if(!LC.on)return;for(const [c,o] of LC.save){for(const k of RP
  /* opened from the qualifying results: back to the results */if(LC.fromRes){LC.fromRes=false;$('res').classList.add('open')}}
 function lcGhostMesh(code){if(LC.gMesh&&LC.gCode===code)return LC.gMesh;if(LC.gMesh)scene.remove(LC.gMesh);const src=CAR3D[cars.findIndex(c=>c.code===code)]||CAR3D[0];const g=src.g.clone(true);
  g.traverse(o=>{if(o.isMesh||o.isInstancedMesh){if(o.geometry&&o.geometry.attributes&&o.geometry.attributes.aBI)o.visible=false;o.material=GHOSTM;o.castShadow=false;o.receiveShadow=false}else if(o.isSprite||o.isPoints||o.isLine)o.visible=false});scene.add(g);LC.gMesh=g;LC.gCode=code;return g}
-function lcIdx(x,y,i0){let bi=i0,bd=1e18;for(let k=-14;k<=14;k++){const j=W(i0+k),dx=x-T[j][0],dy=y-T[j][1],d=dx*dx+dy*dy;if(d<bd){bd=d;bi=j}}return bi}
+/* nearest track sample: a quick search around the last one, and the whole lap when that misses (a jump in time, a restart, the ghost
+   far from the solid car: a wrong sample put the car at the wrong height, under the road, so it vanished) */
+function lcIdx(x,y,i0){let bi=i0,bd=1e18;for(let k=-14;k<=14;k++){const j=W(i0+k),dx=x-T[j][0],dy=y-T[j][1],d=dx*dx+dy*dy;if(d<bd){bd=d;bi=j}}
+ if(bd>144)for(let j=0;j<N;j++){const dx=x-T[j][0],dy=y-T[j][1],d=dx*dx+dy*dy;if(d<bd){bd=d;bi=j}}return bi}
 function ghostFrame(focus,dt){LC.dtF=dt||1/60;if(HEADLESS)return;
  {const b=$('ghb');if(b){const show=isQ();if(b.style.display!==(show?'':'none'))b.style.display=show?'':'none'}if(!isQ()&&LC.on)lcStop()}
  if(!LC.on){if(LC.gMesh)LC.gMesh.visible=false;return}
@@ -3590,7 +3594,7 @@ function ghostFrame(focus,dt){LC.dtF=dt||1/60;if(HEADLESS)return;
  /* the followed car drives its own best lap */
  const a=pathAt(PA,Math.min(LC.t,tA)),i=lcIdx(a.x,a.y,LC.ia);LC.ia=i;A.x=a.x;A.y=a.y;A.th=a.th;A.idx=i;A.lt=(a.x-T[i][0])*NX[i]+(a.y-T[i][1])*NY[i];A.vx=LC.t<tA&&LC.play?a.v:0;A.vy=0;A.r=0;A.pitPh=0;A.gone=false;A.park=false;
  /* the ghost: the other car's best lap from the same start */
- const g=lcGhostMesh(LC.B.code),b=pathAt(PB,Math.min(LC.t,tB)),ib=lcIdx(b.x,b.y,i);g.visible=true;g.position.set(b.x,gAt(b.x,b.y,ib),-b.y);g.rotation.set(0,0,0);g.rotation.order='YZX';g.rotation.y=b.th;
+ const g=lcGhostMesh(LC.B.code),b=pathAt(PB,Math.min(LC.t,tB)),ib=lcIdx(b.x,b.y,LC.ib??i);LC.ib=ib;g.visible=true;g.position.set(b.x,gAt(b.x,b.y,ib),-b.y);g.rotation.set(0,0,0);g.rotation.order='YZX';g.rotation.y=b.th;
  /* live gap: where B was when it had covered the distance A has covered now */
  const dA=LC.dA[a.lo]+(a.lo+1<LC.dA.length?(LC.dA[a.lo+1]-LC.dA[a.lo])*a.u:0);let lo=0,hi=LC.dB.length-1;while(hi-lo>1){const m=(lo+hi)>>1;if(LC.dB[m]<=dA)lo=m;else hi=m}
  const tb=PB[lo*4]+(PB[hi*4]-PB[lo*4])*cl((dA-LC.dB[lo])/Math.max(1e-3,LC.dB[hi]-LC.dB[lo]),0,1);LC.gap=Math.min(LC.t,tA)-tb;lcUI()}
@@ -4244,14 +4248,28 @@ function cycleCam(){const i=CAMS.findIndex(x=>x[0]===CAM.mode);setCam(CAMS[(i+1)
 function updWatchLabel(){const c=VIEW.car;$('carname').innerHTML=`<i style="background:${hx(c.col)}"></i>${c.code}<small>P${c.pos||'-'}</small>`}
 function watchStep(d){const live=R.order.filter(c=>!c.gone);if(!live.length)return;const i=live.indexOf(VIEW.car);VIEW.car=live[(i+d+live.length)%live.length];CAM.th=VIEW.car.th;if(CAM.mode==='director')setCam('chase');updWatchLabel()}
 function openSheet(id){['sheet','camsheet'].forEach(s=>$(s).classList.toggle('open',s===id&&!$(s).classList.contains('open')))}
+/* what each set-up change does, in one line (measured on the test rig: see PLAN v60) */
+const SU_DESC={w:'More wing: more grip in every corner and shorter braking, but up to ~19 km/h less top speed.',
+ b:'Forward: sharper turn-in and more grip in fast corners, but the rear gets nervous on entry and on the throttle. Rearward: stable, more understeer.',
+ r:'Lower: more downforce (fast corners, braking) but harsher on kerbs and bumps. Higher: softer over kerbs, slower in fast corners.',
+ s:'Soft: more mechanical grip over bumps and kerbs, better braking. Stiff: steadier aero at high speed, sharper response, less forgiving.',
+ af:'Soft: more front grip mid-corner (less understeer). Stiff: lazier front, more understeer, calmer car.',
+ ar:'Stiff: the rear rotates more and steps out on the throttle (oversteer). Soft: planted rear, more understeer.',
+ c:'More negative: more grip once the car is loaded in a corner, but weaker braking and traction and hotter, faster-wearing tyres.',
+ k:'More: more front grip with lock on and more stability, heavier, slower steering.',
+ a:'More: better in slow corners (hairpins), slightly worse in fast ones; heats the front tyres more.',
+ x:'Locked: strong traction on exit, but pushes mid-corner. Open: rotates more, but the inside rear spins up on exit.',
+ bb:'Forward: stable braking, fronts lock first (run wide). Rearward: rotates on entry, the rear can lock and spin.',
+ d:'Open: cooler, fade-free brakes, but a little drag (~3 km/h). Closed: faster on the straights, brakes run hotter.',
+ g:'Short: harder acceleration, hits the limiter ~9 km/h earlier. Long: lazier out of slow corners, room for the tow on long straights.'};
 function settingsHTML(){const b=(k,t)=>`<button data-k="${k}">${t}</button>`,sec=t=>`<h3>${t}</h3>`;
  let h=sec('Graphics')+b('shadows','Shadows: '+(renderer.shadowMap.enabled?'on':'off'))+b('res','Resolution: '+(PERF.auto?'Auto (now '+Math.round(renderer.getPixelRatio()/(devicePixelRatio||1)*100)+'%)':Math.round(renderer.getPixelRatio()/(devicePixelRatio||1)*100)+'% (fixed)'))+b('shake','Camera shake: '+(CAM.shakeOn?'on':'off'))+b('fps','FPS counter: '+(SET.fps?'on':'off'))+b('refl','Live reflections: '+(SET.refl?'on':'off'))+
   sec('Sound')+b('snd','Sound: '+(AU.on?'on':'off'))+b('vol','Volume: '+Math.round(AU.vol*100)+'%')+b('comm','Voice commentary: '+(COMM.on?'on':'off'))+
   sec('Display')+b('units','Speed: '+(SET.units==='kmh'?'km/h':'mph'))+b('tower','Timing tower: '+(SET.tower?'shown':'hidden'))+b('line','Racing line: '+(lineM.visible?'on':'off'));
  if(!CFG.watch)h+=sec('Driving')+b('assist','Assist: '+{none:'Off',brake:'Braking',steer:'Steering + braking',auto:'Full auto-drive'}[CFG.assist||'none'])+b('abs','ABS: '+(PLAYER.abs?'on':'off'))+b('tc','Traction control: '+(PLAYER.tc?'on':'off'))+b('aero','Active aero: '+{a:'Auto',h:'High downforce',l:'Low drag'}[PLAYER.am])+ctlSettingsHTML();
  if(!CFG.watch){const su=PLAYER.setup,lab={w:['Wing','low drag','high downforce'],b:['Aero balance','rear','front'],r:['Ride height','low','high'],s:['Suspension','soft','stiff'],d:['Brake ducts','closed (less drag)','open (cooler brakes)'],af:['Front anti-roll bar','soft','stiff'],ar:['Rear anti-roll bar','soft','stiff'],c:['Camber','less','more negative'],k:['Caster','less','more'],a:['Ackermann','less','more'],x:['Diff lock','open','locked'],bb:['Brake bias','rearward','forward'],g:['Gear ratios (final drive)','short: acceleration','long: top speed']};
-  h+=sec('Car set-up (fitted in the garage / at your next stop)');for(const k of ['w','b','r','s','af','ar','c','k','a','x','bb','d','g']){const v=su[k]||0,pct=Math.round(50+v*50);h+=`<div class="srow"><label>${lab[k][0]}<b id="sv_${k}">${pct}%</b></label><input type="range" min="0" max="100" step="5" value="${pct}" data-su="${k}"><div class="ends"><span>${lab[k][1]}</span><span>${lab[k][2]}</span></div></div>`}}
- h+=sec('Session · game v59')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
+  h+=sec('Car set-up (changes take effect straight away)');for(const k of ['w','b','r','s','af','ar','c','k','a','x','bb','d','g']){const v=su[k]||0,pct=Math.round(50+v*50);h+=`<div class="srow"><label>${lab[k][0]}<b id="sv_${k}">${pct}%</b></label><input type="range" min="0" max="100" step="5" value="${pct}" data-su="${k}"><div class="ends"><span>${lab[k][1]}</span><span>${lab[k][2]}</span></div><div class="sdesc">${SU_DESC[k]||""}</div></div>`}}
+ h+=sec('Session · game v60')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
 function settingsAct(k){{const ca=ctlAct(k);if(ca==='closed')return;if(ca){$('sheet').innerHTML=settingsHTML();return}}if(k==='shadows'){const on=!renderer.shadowMap.enabled;renderer.shadowMap.enabled=on;sun.castShadow=on;scene.traverse(o=>{if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true)}})}
  if(k==='res'){/* Auto -> 100% -> 85% -> 67% -> 50% -> Auto; a fixed choice switches the automatic scaler off so it can't undo it, and is remembered */const steps=['auto',1,.85,.67,.5],i=steps.indexOf(PERF.auto?'auto':PERF.fix);resSet(steps[(i+1)%steps.length]);try{localStorage.setItem('glgp_res',String(PERF.auto?'auto':PERF.fix))}catch(e){}}
  if(k==='shake')CAM.shakeOn=!CAM.shakeOn;if(k==='mirror')SET.mirror=!SET.mirror;if(k==='refl')SET.refl=!SET.refl&&!!CUBECAM;if(k==='fps'){SET.fps=!SET.fps;$('fps').style.display=SET.fps?'block':'none'}
@@ -4413,7 +4431,7 @@ return {ev:x=>eval(x)};
 (function(){const FULL=t=>Math.ceil(305/TRACKS[t].km);const M=document.getElementById('menu'),S={track:0,format:'full',laps:10,mode:'drive',assist:'steer',quality:'high',pDur:900,formation:'on',trackT:'r',phys:'classic',gb:'auto',slip:'real'};
  const real=p=>{const m=Math.floor(p/60);return m+':'+(p-60*m).toFixed(1).padStart(4,'0')};
  const grp=(lab,key,items)=>`<div class="grp"><label>${lab}</label><div class="opts">${items.map(([v,t,s])=>`<button data-key="${key}" data-v="${v}" class="${S[key]==v?'sel':''}">${t}${s?`<small>${s}</small>`:''}</button>`).join('')}</div></div>`;
- function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v59</b></div>`+
+ function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v60</b></div>`+
   grp('CIRCUIT','track',TRACKS.map((t,i)=>[i,t.name,t.km.toFixed(2)+' km · '+t.climb+' m elevation · real pole ≈ '+real(t.pole)]))+
   grp('WEEKEND','format',[['full','Full weekend','Practice → Q1/Q2/Q3 → Race'],['qr','Qualifying + race',''],['r','Race only','']])+
   grp('RACE LENGTH','laps',[[5,'5 laps'],[10,'10 laps'],[20,'20 laps'],[30,'30 laps'],['h','Half distance',Math.ceil(FULL(S.track)/2)+' laps'],['f','Full distance',FULL(S.track)+' laps · 305 km']])+
