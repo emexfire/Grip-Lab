@@ -183,7 +183,12 @@ body.thrS #kg,body.brkS #kb,body.strS #kl,body.strS #kr,body.strT #kl,body.strT 
 #warn.on{display:block}#warn small{display:block;font:700 10.5px/1.3 system-ui;letter-spacing:.02em;opacity:.9;margin-top:2px}
 #warn.r{background:#e10600;color:#fff;animation:wflash .7s infinite}#warn.a{background:#ffaa00;color:#111}#warn.y{background:#ffd400;color:#111}#warn.b{background:rgba(20,70,190,.92);color:#fff}#warn.g{background:#1fae4b;color:#fff}
 @keyframes wflash{50%{filter:brightness(1.4)}}
-.hudHide{visibility:hidden!important}body.replay #warn,body.replay #kc{display:none!important}body.hudEd .hudHide{visibility:visible!important;opacity:.3}
+.hudHide{visibility:hidden!important}
+#wadj{position:fixed;left:calc(env(safe-area-inset-left,0px) + 214px);top:calc(env(safe-area-inset-top,0px) + 62px);z-index:9;display:flex;flex-direction:column;gap:4px;font:800 11px system-ui;color:#e8ecf1}
+#wadj .wr{display:flex;align-items:center;gap:4px;background:rgba(14,17,22,.72);border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:3px 5px}
+#wadj span{width:30px;color:#9aa3ad;letter-spacing:.05em}#wadj b{min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
+#wadj button{width:30px;height:28px;border-radius:7px;border:0;background:#2a313c;color:#fff;font:900 16px system-ui;touch-action:manipulation}#wadj button.on{background:#ffd400;color:#111}
+body.replay #wadj{display:none!important}body.replay #warn,body.replay #kc{display:none!important}body.hudEd .hudHide{visibility:visible!important;opacity:.3}
 body.hudEd #kc{display:block}body.hudEd #warn{display:block}body.hudEd #lights{display:flex}
 #hudEd{position:fixed;inset:0;z-index:80;display:none;touch-action:none;background:rgba(0,0,0,.12)}body.hudEd #hudEd{display:block}
 #hudEd .bar{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);display:flex;gap:6px;background:rgba(10,12,16,.94);padding:6px;border-radius:12px;border:1px solid rgba(255,255,255,.18);z-index:2}
@@ -600,7 +605,9 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
  const tgt=inp.s,rate=c.sr*(tgt===0?5:(c.st*tgt<0?6:3.2))*(1-.08*(su.k||0));
  c.st+=cl(tgt-c.st,-rate*dt,rate*dt);
  const pull=((dm.fl-dm.fr)*.6+dm.fw*.35*c.pull+((c.punct[0]?1-(c.pres?c.pres[0]:0):0)-(c.punct[1]?1-(c.pres?c.pres[1]:0):0))*.5+(dm.rl-dm.rr)*.3)*.012;
- c.dl=c.st*.5/(1+Math.pow(v/28,1.5))+pull*Math.min(1,v/15);
+ /* steering lock shrinks with speed (fine control at 300 km/h), but opposite lock into a slide is not limited that way: a driver catching
+    the rear winds on as much lock as the slide needs */
+ {const dmx=.5/(1+Math.pow(v/28,1.5)),bt=Math.atan2(c.vy,Math.max(1,c.vx)),cs=c.st*bt>0&&Math.abs(bt)>.05?Math.min(.36,Math.abs(bt)*1.15+.05):0;c.dl=c.st*Math.max(dmx,cs)+pull*Math.min(1,v/15)}
  let g=inp.g;if(c.lim&&v>PIT_V-.3)g=0;if(c.hold){g=0}
  c.thr+=cl(g-c.thr,-10*dt,3.2*dt);c.brk+=cl((c.hold?1:inp.b)-c.brk,-10*dt,8*dt);
  /* active aero: straight-line mode only where the road ahead is straight */
@@ -703,15 +710,15 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
  if(c.lock&&v>8){const k=dt*Math.min(1.4,v/55)*.3,ay=c.ay||0;if(Math.abs(ay)<6){c.flat[0]=Math.min(1,c.flat[0]+k*.6);c.flat[1]=Math.min(1,c.flat[1]+k*.6)}else{const w=ay>0?0:1;c.flat[w]=Math.min(1,c.flat[w]+k)}
   if(!c.fsMsg&&Math.max(c.flat[0],c.flat[1])>.35){c.fsMsg=1;c.ev&&c.ev('flat')}}
  const dif=su.x||0,room=((c.tc||inp.lc)?Math.max(v<6?.6:.15,Math.sqrt(Math.max(0,1-(Fyr0/Fmr)**2))):1)*(1+.16*dif*(1-ui*.5));
- const dL=(dif+1)/2,dK=W4?dL+(1-dL)*(.55+.45*Math.max(0,wfR)):1-.3*ui*(1-dL),capT=.95*Fmr*dK*Math.max(.18,Math.sqrt(Math.max(0,1-(Fyr0/Fmr)**2)))*(1+.25*Math.max(0,1-(c.thrD||0)/6));
+ const dL=(dif+1)/2,dK=W4?dL+(1-dL)*(.55+.45*Math.max(0,wfR)):1-.3*ui*(1-dL),capT=.95*Fmr*dK*Math.max(.3,Math.sqrt(Math.max(0,1-(Fyr0/Fmr)**2)))*(1+.25*Math.max(0,1-(c.thrD||0)/6));
  c.thrD=((c.thrD||0)*.8+Math.max(0,c.thr-(c.thrP??c.thr))/dt*.2);c.thrP=c.thr;
  /* burnout: throttle and brake together at (almost) a standstill: the fronts hold the car, the rears spin up and cook */
  c.burn=!c.isSC&&!c.hold&&v<3&&c.thr>.6&&c.brk>.35&&Fdr>capT*.6?1:0;
  if(c.burn){c.wspin=(c.wspin||0)+(Math.min(1,c.thr)-(c.wspin||0))*Math.min(1,dt*6)}else
- if(!(c.tc||inp.lc)&&!c.isSC&&v>3&&(Fdr-Bm*rb-eb)>capT*.95){c.wspin=(c.wspin||0)+(Math.min(1,(Fdr/(capT*.95)-1)*2.7)-(c.wspin||0))*Math.min(1,dt*14)}else c.wspin=Math.max(0,(c.wspin||0)-dt*5);
+ if(!(c.tc||inp.lc)&&!c.isSC&&v>3&&(Fdr-Bm*rb-eb)>capT*.95){c.wspin=(c.wspin||0)+(Math.min(1,(Fdr/(capT*.95)-1)*1.6)-(c.wspin||0))*Math.min(1,dt*10)}else c.wspin=Math.max(0,(c.wspin||0)-dt*8);/* wheelspin builds a little less violently and dies away as soon as the throttle comes back: a slide can be caught */
  const Fxr=(c.burn?x=>Math.min(x,Math.abs(Fxf)*.9):x=>x)(c.wspin>.04?Math.min((Fdr-(Bm*rb+eb)*sgV),capT*(.9-.12*c.wspin)):cl((Fdr-(Bm*rb+eb)*sgV),-(c.abs?.72:W4?Math.max(.4,.93*Math.sqrt(Math.max(0,1-(Fyr0/Fmr)**2))):.95)*Fmr,Math.max((c.tc||inp.lc)?.95*Fmr*room:capT,v<8?.22*m*G*Math.min(1,c.thr*2):0)));
  let Fyf=pac(af,Fzf,muF3)*Math.sqrt(Math.max(0,1-(Fxf/Fmf)**2));if(c.lock)Fyf*=.35;
- const Fyr=(Fxr<0?Fyr0*Math.sqrt(Math.max(0,1-(Fxr/Fmr)**2)):Fyr0*Math.sqrt(Math.max(.05,1-(Fxr/Fmr)**2*.85)))*(1-.7*(c.wspin||0));
+ const Fyr=(Fxr<0?Fyr0*Math.sqrt(Math.max(0,1-(Fxr/Fmr)**2)):Fyr0*Math.sqrt(Math.max(.05,1-(Fxr/Fmr)**2*.85)))*(1-.4*(c.wspin||0));
  /* tyre temperature and wear (per axle) */
  const Pf=Math.abs(Fyf*af)*v+Math.abs(Fxf)*v*.02,Pr=Math.abs(Fyr*ar)*v+Math.abs(Fxr)*v*.03+(c.wspin||0)*Math.abs(Fxr)*v*.25,ws=CFG.wearScale||1;
  c.slipPow=Pf+Pr;
@@ -1443,7 +1450,7 @@ function startSession(type){if(typeof cars!=='undefined')for(const c of cars){c.
  const ws=50/Math.max(3,CFG.laps);CFG.wearScale=type==='R'?cl(ws,1,10):type==='P'?2:1.2;
  const active=type==='Q2'?(R.qIn2||cars.slice(0,16)):type==='Q3'?(R.qIn3||cars.slice(0,10)):cars;
  for(const c of cars){resetCar(c);c.inSes=active.includes(c);c.qBoost=1;c.learnOn=!c.human;
-  c.lrK=type==='P'?1.5:type[0]==='Q'?.5:.25;c.modeK=.9;c.tyreMgmt=c.tyreMgmt||0;c.lapTmax=0;if(c.su&&type!=='P'){c.setup={...c.su.base};condSetup(c,type)}}
+  c.lrK=type==='P'?1.5:type[0]==='Q'?.5:.25;c.modeK=.9;c.tyreMgmt=c.tyreMgmt||0;c.lapTmax=0;if(c.su&&type!=='P'&&!(c.human&&!c.ai)){c.setup={...c.su.base};condSetup(c,type)}/* the player's own set-up carries over from practice: it is never reset to the default */if(c.human&&!c.ai){if(type!=='P'&&c.suPend){c.setup={...c.setup,...c.suPend};c.suPend=null}c.fwNext=0}}
  scCar();
  if(type==='R'){R.laps=CFG.laps;R.phase='grid';R.lights=0;R.lightsAt=simT;R.outAt=5+rr(.4,2.4);
   let ord=R.grid||cars.slice().sort((a,b)=>(a.drv.mrg-b.drv.mrg)+(rnd()-.5)*.01);{const g=[];for(const c of ord.concat(cars))if(!g.includes(c))g.push(c);ord=g}R.grid=ord;
@@ -1519,6 +1526,10 @@ function startService(c){const tmB=cars.find(o=>o!==c&&o.team===c.team&&((o.pitP
  /* the stop takes as long as the work: tyres only ~2-2.5s; a nose ~+6s; a rear wing ~+12s; suspension or floor much longer */
  let work=2.05+rr(0,.45),t=0;const w=[];for(const j of repairList(c,1)){work+=j.t;w.push(j.k)}
  if(rnd()<c.tm.err*.7){const x=rr(1.5,4);work+=x;radio(c,'Slow stop, sorry, problem with the wheel gun.')}
+ /* the player's mechanics: set-up changes asked for in practice are fitted at the stop (a few seconds of work), a front-wing angle
+    change (the one change allowed after qualifying) takes a moment while the tyres go on */
+ if(c.human&&!c.ai){if(c.suPend){work+=4.5+rr(0,2);w.push('set-up');c.setup={...c.setup,...c.suPend};c.suPend=null}
+  if(c.fwNext){work+=.4;w.push('front wing '+(c.fwNext>0?'+':'')+c.fwNext);c.setup={...c.setup,b:cl((c.setup.b||0)+.12*c.fwNext,-1,1),w:cl((c.setup.w||0)+.04*c.fwNext,-1,1)};c.fwNext=0}}
  if(c.pen>0){t+=c.pen;msg('CAR '+c.num+' ('+c.code+') served a '+c.pen+'s penalty','rc',c);c.penLog.push('served '+c.pen+'s');c.pen=0}
  if(tmB)t+=Math.max(0,tmB.svcT)+.6;
  c.svcT=t+work;c.svcWorkDur=work;c.svcWork=w;c.svcHold=0;c.svcHoldT=0;
@@ -3701,7 +3712,7 @@ const DT=1/200;
 const HIN={l:0,r:0,g:0,b:0,ot:0,u:0,d:0,c:0,sa:null,ga:null,ba:null},HPREV={u:0,d:0};
 /* the player's control tuning (the touch-control module edits and saves it): button steering sensitivity sets how far and how fast
    the buttons turn the wheel; sliders and tilt arrive already shaped (dead zone, response curve, sensitivity) in HIN.sa/ga/ba */
-const CTL={sSens:1};
+const CTL={sSens:1,slideA:1};
 function humanInput(c){const assist=CFG.assist||'none';
  if(assist==='auto')return aiDrive(c,DT,R);
  /* BOX: the player asked to pit. The entry window is the same as the AI's (the last stretch before the pit entry); from there the
@@ -3710,6 +3721,10 @@ function humanInput(c){const assist=CFG.assist||'none';
  if(c.pitReq&&!c.pitPh&&R.phase!=='formation'&&R.phase!=='grid'){const rel=relOf(c.idx),lt=c.lt;if(rel>=N-40&&(rel<N-14||lt>HW-2.5)&&lt>-(HW+2)){c.pitPh=1;const mate=R.cars.find(o=>o!==c&&o.team===c.team&&(o.pitPh===1||o.pitPh===2)&&!o.park);c.stopRel=RB(c.team)-(mate?1.95:0)}}
  /* steering: an analog source (slider, tilt) when there is one, else the buttons, eased in at a rate set by the sensitivity */
  let man;if(HIN.sa!=null&&!HIN.l&&!HIN.r)man=HIN.sa;else{const k=CTL.sSens||1,tgt=(HIN.l-HIN.r)*Math.min(1,.4+.6*k),rate=(tgt===0?10:7)*k;c._sb=(c._sb||0)+cl(tgt-(c._sb||0),-rate*DT,rate*DT);man=c._sb}
+ /* counter-steer assist: once the rear steps out past ~3 degrees, opposite lock is blended in as fast as the slide grows (a thumb on a
+    button cannot react like hands on a wheel); the player's own opposite lock is never reduced */
+ if(CTL.slideA>0){const v=Math.hypot(c.vx,c.vy),bt=Math.atan2(c.vy,Math.max(1,c.vx));if(v>6&&Math.abs(bt)>.05){const want=cl(3*bt,-1,1),w=CTL.slideA*Math.min(1,(Math.abs(bt)-.05)/.1);
+  if(!(Math.sign(man)===Math.sign(want)&&Math.abs(man)>=Math.abs(want)))man=man*(1-w)+want*w}}
  const thr=HIN.ga!=null?Math.max(HIN.ga,HIN.g):HIN.g,brk=HIN.ba!=null?Math.max(HIN.ba,HIN.b):HIN.b;let inp={s:man,g:thr,b:brk};
  /* clutch and launch mode: the clutch only works at a standstill. Holding it with the throttle near full for a moment arms launch
     mode (the revs are held at the launch point); letting it go launches with the wheelspin metered for the first couple of seconds */
@@ -3800,10 +3815,10 @@ function frameUpdate(fdt){debrisUpdate(fdt);coolTrack(fdt);pebUpdate(fdt);sessio
 function advance(sec){let n=Math.round(sec/DT);while(n-->0){simStep();if((Math.round(simT/DT)%10)===0)frameUpdate(DT*10)}}
 
 /* ===================== touch controls: buttons / sliders / tilt, sensitivity, launch clutch, HUD layout editor, on-screen warnings ===================== */
-const CTLS_DEF={thr:'btn',brk:'btn',str:'btn',sSens:100,sCurve:30,sDead:4,tSens:100,tDead:3,tInv:0,pCurve:20,bSens:100};
+const CTLS_DEF={slide:'on',thr:'btn',brk:'btn',str:'btn',sSens:100,sCurve:30,sDead:4,tSens:100,tDead:3,tInv:0,pCurve:20,bSens:100};
 const CTLS=(()=>{let o={};try{o=JSON.parse(localStorage.getItem('glgp_ctl')||'{}')||{}}catch(e){}return Object.assign({},CTLS_DEF,o)})();
-CTL.sSens=CTLS.sSens/100;
-function ctlSave(){CTL.sSens=CTLS.sSens/100;try{localStorage.setItem('glgp_ctl',JSON.stringify(CTLS))}catch(e){}}
+const SLIDE_K={on:1,light:.5,off:0};CTL.sSens=CTLS.sSens/100;CTL.slideA=SLIDE_K[CTLS.slide]??1;
+function ctlSave(){CTL.sSens=CTLS.sSens/100;CTL.slideA=SLIDE_K[CTLS.slide]??1;try{localStorage.setItem('glgp_ctl',JSON.stringify(CTLS))}catch(e){}}
 /* input shaping: a dead zone, then a response curve (0 = linear, 100 = progressive: fine control near the centre), then the gain */
 const shapeAxis=(x,dz,curve,sens)=>{const a=Math.abs(x);if(a<=dz)return 0;const u=Math.pow((a-dz)/(1-dz),1+curve*1.6);return Math.sign(x)*Math.min(1,u*sens)};
 const shapePedal=(x,curve,sens)=>x<=.03?0:Math.min(1,Math.pow((x-.03)/.97,1+curve*1.5)*sens);
@@ -3834,7 +3849,7 @@ function tiltEnable(){if(TILT.live)return;const add=()=>{if(!TILT.live){TILT.liv
 const tiltOK=()=>performance.now()-TILT.last<1500;
 /* ---------- the HUD layout editor ---------- */
 const HUDL={items:[['kl','Steer left'],['kr','Steer right'],['ssteer','Steering slider'],['kb','Brake'],['sbrk','Brake slider'],['kg','Throttle'],['sgas','Throttle slider'],['kc','Clutch'],
- ['kd','Gear down'],['ku','Gear up'],['me','Speed panel'],['tower','Timing tower'],['msgs','Race messages'],['hudTop','Session bar'],['warn','Warnings'],['lights','Start lights'],['dbar','Pit / ERS bar'],['tbtn','Top buttons']],
+ ['kd','Gear down'],['ku','Gear up'],['me','Speed panel'],['tower','Timing tower'],['msgs','Race messages'],['hudTop','Session bar'],['warn','Warnings'],['lights','Start lights'],['dbar','Pit / ERS bar'],['tbtn','Top buttons'],['wadj','Brake bias / diff']],
  st:(()=>{try{return JSON.parse(localStorage.getItem('glgp_hud')||'{}')||{}}catch(e){return{}}})(),sel:null,drag:null,spd:1};
 function hudApply(){for(const [id] of HUDL.items){const e=$(id);if(!e)continue;const s=HUDL.st[id]||{};e.style.translate=(s.x||s.y)?`${Math.round(s.x||0)}px ${Math.round(s.y||0)}px`:'';e.style.scale=s.s&&s.s!==1?String(s.s):'';e.classList.toggle('hudHide',!!s.h)}}
 function hudSave(){try{localStorage.setItem('glgp_hud',JSON.stringify(HUDL.st))}catch(e){}}
@@ -3859,7 +3874,7 @@ function hudBtn(k){const id=HUDL.sel,s=id?(HUDL.st[id]||(HUDL.st[id]={})):null;
 /* ---------- settings (the Controls section of the settings sheet) ---------- */
 function ctlSettingsHTML(){const b=(k,t)=>`<button data-k="${k}">${t}</button>`;
  const rng=(k,lab,mn,mx,l0,l1,u)=>`<div class="srow"><label>${lab}<b id="ct_${k}">${CTLS[k]}${u||''}</b></label><input type="range" min="${mn}" max="${mx}" step="1" value="${CTLS[k]}" data-ct="${k}" data-u="${u||''}"><div class="ends"><span>${l0}</span><span>${l1}</span></div></div>`;
- let h=`<h3>Controls</h3>`+b('ctl_thr','Throttle: '+(CTLS.thr==='sld'?'Slider':'Button'))+b('ctl_brk','Brake: '+(CTLS.brk==='sld'?'Slider':'Button'))+b('ctl_str','Steering: '+{btn:'Buttons',sld:'Slider',tilt:'Tilt'}[CTLS.str]);
+ let h=`<h3>Controls</h3>`+b('ctl_thr','Throttle: '+(CTLS.thr==='sld'?'Slider':'Button'))+b('ctl_brk','Brake: '+(CTLS.brk==='sld'?'Slider':'Button'))+b('ctl_str','Steering: '+{btn:'Buttons',sld:'Slider',tilt:'Tilt'}[CTLS.str])+b('ctl_slide','Counter-steer assist: '+{on:'On',light:'Light',off:'Off'}[CTLS.slide])+`<div class="srow sdesc">Counter-steer assist adds opposite lock as soon as the rear steps out, so slides can be caught with buttons or tilt. Light gives half the help; Off is all you.</div>`;
  if(CTLS.str==='tilt'&&TILT.live&&!tiltOK()&&performance.now()-TILT.t0>2500)h+=`<div class="srow" style="color:#ffb000">Tilt sensor not answering here. On iPhone, open the game from its own web link (not inside another app's preview) and allow motion access. The buttons stay on until it works.</div>`;
  h+=rng('sSens','Steering sensitivity',30,200,'gentle','sharp','%')+rng('sCurve','Steering response',0,100,'linear','progressive','')+rng('sDead','Steering dead zone',0,20,'none','wide','%');
  if(CTLS.str==='tilt')h+=rng('tSens','Tilt sensitivity',30,200,'big turns','small turns','%')+rng('tDead','Tilt dead zone',0,10,'none','wide','°')+b('tiltcal','Calibrate tilt (hold the phone as you drive, tap)')+b('tiltinv','Invert tilt: '+(CTLS.tInv?'on':'off'));
@@ -3868,6 +3883,7 @@ function ctlSettingsHTML(){const b=(k,t)=>`<button data-k="${k}">${t}</button>`;
 function ctlAct(k){
  if(k==='ctl_thr'){CTLS.thr=CTLS.thr==='sld'?'btn':'sld'}else if(k==='ctl_brk'){CTLS.brk=CTLS.brk==='sld'?'btn':'sld'}
  else if(k==='ctl_str'){const o=['btn','sld','tilt'];CTLS.str=o[(o.indexOf(CTLS.str)+1)%3];if(CTLS.str==='tilt'){TILT.c0=null;tiltEnable()}}
+ else if(k==='ctl_slide'){const o=['on','light','off'];CTLS.slide=o[(o.indexOf(CTLS.slide)+1)%3]}
  else if(k==='tiltcal'){tiltEnable();TILT.c0=TILT.ang}else if(k==='tiltinv'){CTLS.tInv=CTLS.tInv?0:1}
  else if(k==='hudedit'){hudOpen();return 'closed'}else if(k==='hudreset'){HUDL.st={};hudSave();hudApply()}
  else return false;ctlSave();ctlApply();return true}
@@ -3927,8 +3943,17 @@ function ctlTick(dt){if(HEADLESS)return;const P=PLAYER,B=document.body.classList
  /* tilt that never answers falls back to the buttons */
  if(CTLS.str==='tilt'){const ok=tiltOK();B.toggle('tiltNA',!ok);if(!ok)HIN.sa=null;else if(HIN.sa==null)HIN.sa=0}else if(B.contains('tiltNA'))B.remove('tiltNA')
  if(GSM){const show=drive&&R.type==='R'&&R.phase==='formation'&&P.fmGone&&!P.fmDone;GSM.visible=show;if(show){const g=gridSlot(P.gridPos),i=g.i;GSM.position.set(T[i][0]+NX[i]*g.lt,HZ[i]+bankH(i,g.lt)+.01,-(T[i][1]+NY[i]*g.lt));GSM.rotation.y=hd[i];GSM.userData.arrow.position.y=3+Math.sin(simT*3)*.35;GSM.userData.arrow.rotation.y=simT*1.5}}
+ WADJ.t+=dt;if(WADJ.t>.25){WADJ.t=0;wadjDraw();const w=$('wadj');if(w){const on=!CFG.watch&&!!PLAYER;if((w.style.display!=='none')!==on)w.style.display=on?'':'none'}}
  WARN.t+=dt;if(WARN.t>.2){warnTick(WARN.t);WARN.t=0}}
-function ctlInit(){if(HEADLESS)return;bindBtn('kc','c');
+/* brake bias and diff on the steering wheel: small +/- steps, live, in every session (they are the driver's, not the mechanics') */
+const WADJ={t:0};
+function wadjInit(){const wa=document.createElement('div');wa.id='wadj';
+ wa.innerHTML='<div class="wr"><span>BB</span><button data-w="bb" data-d="-1">−</button><b id="wabb"></b><button data-w="bb" data-d="1">+</button></div><div class="wr"><span>DIFF</span><button data-w="x" data-d="-1">−</button><b id="wax"></b><button data-w="x" data-d="1">+</button></div>';
+ document.body.appendChild(wa);
+ wa.addEventListener('pointerdown',ev=>{const b=ev.target.closest('button');if(!b||document.body.classList.contains('hudEd'))return;ev.preventDefault();ev.stopPropagation();const k=b.dataset.w,d=+b.dataset.d,st=k==='bb'?1/7:.1;
+  const v=cl(Math.round(((PLAYER.setup[k]||0)+d*st)*1000)/1000,-1,1);PLAYER.setup={...PLAYER.setup,[k]:v};wadjDraw();b.classList.add('on');setTimeout(()=>b.classList.remove('on'),120)})}
+function wadjDraw(){const su=PLAYER.setup||{},a=$('wabb'),b=$('wax');if(a){const t=(56+3.5*(su.bb||0)).toFixed(1)+'%';if(a.textContent!==t)a.textContent=t}if(b){const t=Math.round(50+50*(su.x||0))+'%';if(b.textContent!==t)b.textContent=t}}
+function ctlInit(){if(HEADLESS)return;bindBtn('kc','c');wadjInit();
  bindSlider('sgas','v',raw=>{if(CTLS.thr==='sld')HIN.ga=shapePedal(raw,CTLS.pCurve/100,1)});
  bindSlider('sbrk','v',raw=>{if(CTLS.brk==='sld')HIN.ba=shapePedal(raw,CTLS.pCurve/100,CTLS.bSens/100)});
  bindSlider('ssteer','h',raw=>{if(CTLS.str==='sld')HIN.sa=-shapeAxis(raw,CTLS.sDead/100,CTLS.sCurve/100,CTLS.sSens/100)});
@@ -4262,14 +4287,23 @@ const SU_DESC={w:'More wing: more grip in every corner and shorter braking, but 
  bb:'Forward: stable braking, fronts lock first (run wide). Rearward: rotates on entry, the rear can lock and spin.',
  d:'Open: cooler, fade-free brakes, but a little drag (~3 km/h). Closed: faster on the straights, brakes run hotter.',
  g:'Short: harder acceleration, hits the limiter ~9 km/h earlier. Long: lazier out of slow corners, room for the tow on long straights.'};
+/* set-up rules, as in F1: practice changes are fitted in the garage (or at the next stop when the car is out), from qualifying on the
+   car is in parc fermé (locked) except brake bias and diff, which the driver changes from the wheel, and the front wing at a stop */
+function suLock(){if(CFG.watch)return null;if(R.type!=='P')return 'parc';return PLAYER.park?null:'stop'}
+function suSet(k,v){const live=k==='bb'||k==='x',lk=suLock();v=cl(v,-1,1);
+ if(live||!lk){PLAYER.setup={...PLAYER.setup,[k]:v};if(PLAYER.suPend)delete PLAYER.suPend[k];return 'now'}
+ if(lk==='parc')return 'locked';PLAYER.suPend={...(PLAYER.suPend||{}),[k]:v};return 'pend'}
 function settingsHTML(){const b=(k,t)=>`<button data-k="${k}">${t}</button>`,sec=t=>`<h3>${t}</h3>`;
  let h=sec('Graphics')+b('shadows','Shadows: '+(renderer.shadowMap.enabled?'on':'off'))+b('res','Resolution: '+(PERF.auto?'Auto (now '+Math.round(renderer.getPixelRatio()/(devicePixelRatio||1)*100)+'%)':Math.round(renderer.getPixelRatio()/(devicePixelRatio||1)*100)+'% (fixed)'))+b('shake','Camera shake: '+(CAM.shakeOn?'on':'off'))+b('fps','FPS counter: '+(SET.fps?'on':'off'))+b('refl','Live reflections: '+(SET.refl?'on':'off'))+
   sec('Sound')+b('snd','Sound: '+(AU.on?'on':'off'))+b('vol','Volume: '+Math.round(AU.vol*100)+'%')+b('comm','Voice commentary: '+(COMM.on?'on':'off'))+
   sec('Display')+b('units','Speed: '+(SET.units==='kmh'?'km/h':'mph'))+b('tower','Timing tower: '+(SET.tower?'shown':'hidden'))+b('line','Racing line: '+(lineM.visible?'on':'off'));
  if(!CFG.watch)h+=sec('Driving')+b('assist','Assist: '+{none:'Off',brake:'Braking',steer:'Steering + braking',auto:'Full auto-drive'}[CFG.assist||'none'])+b('abs','ABS: '+(PLAYER.abs?'on':'off'))+b('tc','Traction control: '+(PLAYER.tc?'on':'off'))+b('aero','Active aero: '+{a:'Auto',h:'High downforce',l:'Low drag'}[PLAYER.am])+ctlSettingsHTML();
  if(!CFG.watch){const su=PLAYER.setup,lab={w:['Wing','low drag','high downforce'],b:['Aero balance','rear','front'],r:['Ride height','low','high'],s:['Suspension','soft','stiff'],d:['Brake ducts','closed (less drag)','open (cooler brakes)'],af:['Front anti-roll bar','soft','stiff'],ar:['Rear anti-roll bar','soft','stiff'],c:['Camber','less','more negative'],k:['Caster','less','more'],a:['Ackermann','less','more'],x:['Diff lock','open','locked'],bb:['Brake bias','rearward','forward'],g:['Gear ratios (final drive)','short: acceleration','long: top speed']};
-  h+=sec('Car set-up (changes take effect straight away)');for(const k of ['w','b','r','s','af','ar','c','k','a','x','bb','d','g']){const v=su[k]||0,pct=Math.round(50+v*50);h+=`<div class="srow"><label>${lab[k][0]}<b id="sv_${k}">${pct}%</b></label><input type="range" min="0" max="100" step="5" value="${pct}" data-su="${k}"><div class="ends"><span>${lab[k][1]}</span><span>${lab[k][2]}</span></div><div class="sdesc">${SU_DESC[k]||""}</div></div>`}}
- h+=sec('Session · game v60')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
+  const lk=suLock(),pend=PLAYER.suPend||{};
+  h+=sec('Car set-up')+`<div class="srow sdesc" style="color:${lk==='parc'?'#ffb000':'#9fd8ff'}">${lk==='parc'?'Parc fermé: the set-up is locked from qualifying on, as in F1. Brake bias and diff can still be changed from the steering wheel (also the on-screen BB / DIFF buttons), and the front wing angle at a pit stop.':lk==='stop'?'On track: changes are fitted by your mechanics at your next pit stop (press BOX). In the garage they are fitted straight away.':'In the garage: changes are fitted straight away. Brake bias and diff can also be changed on track.'}</div>`;
+  if(lk==='parc')h+=`<div class="srow"><label>Front wing at next stop<b id="fwn">${PLAYER.fwNext>0?'+':''}${PLAYER.fwNext||0} click${Math.abs(PLAYER.fwNext||0)===1?'':'s'}</b></label><div style="display:flex;gap:6px"><button data-k="fw_m" style="flex:1">− less wing</button><button data-k="fw_p" style="flex:1">+ more wing</button></div><div class="sdesc">More front wing: sharper turn-in and less understeer, a touch more drag. Fitted at your next stop.</div></div>`;
+  for(const k of ['w','b','r','s','af','ar','c','k','a','x','bb','d','g']){const live=k==='bb'||k==='x',off=lk==='parc'&&!live,pd=!live&&lk==='stop'&&pend[k]!=null,v=pd?pend[k]:(su[k]||0),pct=Math.round(50+v*50);h+=`<div class="srow"${off?' style="opacity:.45"':''}><label>${lab[k][0]}${live?' <span style="color:#30d158;font-size:9px">LIVE</span>':''}<b id="sv_${k}">${pct}%${pd?' → next stop':''}</b></label><input type="range" min="0" max="100" step="5" value="${pct}" data-su="${k}"${off?' disabled':''}><div class="ends"><span>${lab[k][1]}</span><span>${lab[k][2]}</span></div><div class="sdesc">${SU_DESC[k]||""}</div></div>`}}
+ h+=sec('Session · game v61')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
 function settingsAct(k){{const ca=ctlAct(k);if(ca==='closed')return;if(ca){$('sheet').innerHTML=settingsHTML();return}}if(k==='shadows'){const on=!renderer.shadowMap.enabled;renderer.shadowMap.enabled=on;sun.castShadow=on;scene.traverse(o=>{if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true)}})}
  if(k==='res'){/* Auto -> 100% -> 85% -> 67% -> 50% -> Auto; a fixed choice switches the automatic scaler off so it can't undo it, and is remembered */const steps=['auto',1,.85,.67,.5],i=steps.indexOf(PERF.auto?'auto':PERF.fix);resSet(steps[(i+1)%steps.length]);try{localStorage.setItem('glgp_res',String(PERF.auto?'auto':PERF.fix))}catch(e){}}
  if(k==='shake')CAM.shakeOn=!CAM.shakeOn;if(k==='mirror')SET.mirror=!SET.mirror;if(k==='refl')SET.refl=!SET.refl&&!!CUBECAM;if(k==='fps'){SET.fps=!SET.fps;$('fps').style.display=SET.fps?'block':'none'}
@@ -4281,7 +4315,8 @@ function settingsAct(k){{const ca=ctlAct(k);if(ca==='closed')return;if(ca){$('sh
  if(k==='assist'){const o=['none','brake','steer','auto'];CFG.assist=o[(o.indexOf(CFG.assist||'none')+1)%4];PLAYER.ai=CFG.assist==='auto';ctrlVis()}
  if(k==='abs')PLAYER.abs=!PLAYER.abs;if(k==='tc')PLAYER.tc=!PLAYER.tc;
  if(k==='aero'){const o=['a','h','l'];PLAYER.am=o[(o.indexOf(PLAYER.am)+1)%3]}
- if(k.startsWith('su_')){const kk=k.slice(3),o=[-1,-.5,0,.5,1];PLAYER.setup={...PLAYER.setup,[kk]:o[(o.indexOf(PLAYER.setup[kk]||0)+1)%5]}}
+ if(k==='fw_m'||k==='fw_p'){PLAYER.fwNext=cl((PLAYER.fwNext||0)+(k==='fw_p'?1:-1),-3,3)}
+ if(k.startsWith('su_')){const kk=k.slice(3),o=[-1,-.5,0,.5,1];suSet(kk,o[(o.indexOf(PLAYER.setup[kk]||0)+1)%5])}
  if(k==='skip'){skipSession();openSheet(null);return}if(k==='quit'){location.reload();return}
  if(k==='close'){openSheet(null);return}$('sheet').innerHTML=settingsHTML()}
 if(!HEADLESS){
@@ -4297,7 +4332,7 @@ if(!HEADLESS){
  onTap($('camb'),()=>openSheet('camsheet'));onTap($('camw'),()=>openSheet('camsheet'));const optF=()=>{$('sheet').innerHTML=settingsHTML();openSheet('sheet')};onTap($('optb'),optF);onTap($('optw'),optF);
  onTap($('prevb'),()=>watchStep(-1));onTap($('nextb'),()=>watchStep(1));onTap($('carname'),()=>watchStep(1));
  tapOnly($('sheet'),e=>{const b=e.target.closest('button');if(b){e.preventDefault();settingsAct(b.dataset.k)}});
- $('sheet').addEventListener('input',e=>{const t=e.target;if(t.dataset&&ctlRange(t))return;if(!t.dataset||!t.dataset.su)return;const k=t.dataset.su,pct=+t.value;PLAYER.setup={...PLAYER.setup,[k]:(pct-50)/50};const lb=$('sv_'+k);if(lb)lb.textContent=pct+'%'});
+ $('sheet').addEventListener('input',e=>{const t=e.target;if(t.dataset&&ctlRange(t))return;if(!t.dataset||!t.dataset.su)return;const k=t.dataset.su,pct=+t.value,how=suSet(k,(pct-50)/50);const lb=$('sv_'+k);if(lb)lb.textContent=pct+'%'+(how==='pend'?' → next stop':'')});
  onTap($('camclose'),()=>openSheet(null));
  tapOnly($('tower'),e=>{const r=e.target.closest('.tr');if(!r)return;const c=cars.find(x=>x.code===r.dataset.code);if(c&&!c.gone){VIEW.car=c;CAM.th=c.th;if(CAM.mode==='director')setCam('chase');updWatchLabel()}});
  onTap($('boxb'),()=>{if(PLAYER.out||CFG.watch)return;PLAYER.pitReq=!PLAYER.pitReq;if(PLAYER.pitReq&&!PLAYER.nextCmp)PLAYER.nextCmp=PLAYER.cmp==='M'?'H':'M';msg(PLAYER.pitReq?'Box this lap, box.':'Understood, staying out.','radio',PLAYER)});
@@ -4355,6 +4390,9 @@ function frame(now){const dt=Math.max(0,Math.min(.05,(now-lastT)/1000));lastT=no
  let skipDraw=true;if(skipping){skipDraw=fpsN%6===0;const t0=performance.now();while(performance.now()-t0<110&&!R.done){for(let k=0;k<20;k++)simStep();frameUpdate(DT*20)}if(R.done){$('skipm').style.display='none';skipping=false;if(!CFG.watch)PLAYER.ai=CFG.assist==='auto'}}
  else if(!$('res').classList.contains('open')){acc+=dt*SPEED;let n=0;while(acc>=DT&&n<1600){simStep();acc-=DT;n++;if(n%10===0)frameUpdate(DT*10)}if(n%10)frameUpdate(DT*(n%10))}
  {/* wind at the camera's part of the lap blows smoke and dust downwind; sparks are too heavy to care */const wv=windAt(VIEW.car.idx);SMOKE.update(dt,-.6,1.2,wv[0],-wv[1]);SPARK.update(dt,9.81,.8,wv[0]*.15,-wv[1]*.15)}
+ /* hot-lap compare places its cars first: the drawing below shifts every car for the in-between moment and puts it back afterwards,
+    and a car placed after that shift was put straight back where it started (the solid car stood still while the ghost drove) */
+ ghostFrame(VIEW.car,dt);
  /* draw every car where it is at this exact moment (physics steps are 5 ms apart: no judder) */
  const ia=skipping?0:Math.min(acc,DT);const shifted=[];for(const c of R.sc?cars.concat([R.sc]):cars){if(c.park||c.gone)continue;const w=wvel(c);c._ox=c.x;c._oy=c.y;c._oth=c.th;c.x+=w[0]*ia;c.y+=w[1]*ia;c.th+=c.r*ia;shifted.push(c)}
  rpRecord();rpFrame(dt);crewUpdate(dt);cars.forEach((c,i)=>{updCar(c,CAR3D[i],dt);if(!RPL.on&&!LC.on)marksFor(c);updSusp(c,CAR3D[i],!c.gone&&CAR3D[i].g.visible&&Math.hypot(cam.position.x-c.x,cam.position.z+c.y)<70)});updDebris();if((rN&7)===0)updGravelBed();{const wv=windAt(VIEW.car.idx);FRAG.update(dt,9.81,.4,wv[0]*.6,-wv[1]*.6)}
@@ -4368,7 +4406,7 @@ function frame(now){const dt=Math.max(0,Math.min(.05,(now-lastT)/1000));lastT=no
  if(R.lights!==R._l){if(R.lights>0)sfx.light(true);else if(R.lights===-1&&R._l>0)sfx.light(false);R._l=R.lights}
  if(VIEW.car.gone){VIEW.car=R.order.find(c=>!c.gone)||cars[0];updWatchLabel()}
  skyFrame(dt);smokeFog(dt);
- camUpdate(dt);ghostFrame(VIEW.car,dt);commFrame();audioFrame(dt,VIEW.car);hudUpdate(dt,VIEW.car);panelsUpdate(dt,VIEW.car);if((fpsN&15)===0)updWatchLabel();
+ camUpdate(dt);commFrame();audioFrame(dt,VIEW.car);hudUpdate(dt,VIEW.car);panelsUpdate(dt,VIEW.car);if((fpsN&15)===0)updWatchLabel();
  const sp=Math.hypot(VIEW.car.vx,VIEW.car.vy);$('vg').style.opacity=cl((sp-60)/40,0,.75);
  rubberVisual();perfTick(dt);
  if(skipDraw)renderAll();for(const c of shifted){c.x=c._ox;c.y=c._oy;c.th=c._oth}requestAnimationFrame(frame)}
@@ -4431,7 +4469,7 @@ return {ev:x=>eval(x)};
 (function(){const FULL=t=>Math.ceil(305/TRACKS[t].km);const M=document.getElementById('menu'),S={track:0,format:'full',laps:10,mode:'drive',assist:'steer',quality:'high',pDur:900,formation:'on',trackT:'r',phys:'classic',gb:'auto',slip:'real'};
  const real=p=>{const m=Math.floor(p/60);return m+':'+(p-60*m).toFixed(1).padStart(4,'0')};
  const grp=(lab,key,items)=>`<div class="grp"><label>${lab}</label><div class="opts">${items.map(([v,t,s])=>`<button data-key="${key}" data-v="${v}" class="${S[key]==v?'sel':''}">${t}${s?`<small>${s}</small>`:''}</button>`).join('')}</div></div>`;
- function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v60</b></div>`+
+ function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v61</b></div>`+
   grp('CIRCUIT','track',TRACKS.map((t,i)=>[i,t.name,t.km.toFixed(2)+' km · '+t.climb+' m elevation · real pole ≈ '+real(t.pole)]))+
   grp('WEEKEND','format',[['full','Full weekend','Practice → Q1/Q2/Q3 → Race'],['qr','Qualifying + race',''],['r','Race only','']])+
   grp('RACE LENGTH','laps',[[5,'5 laps'],[10,'10 laps'],[20,'20 laps'],[30,'30 laps'],['h','Half distance',Math.ceil(FULL(S.track)/2)+' laps'],['f','Full distance',FULL(S.track)+' laps · 305 km']])+
