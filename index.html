@@ -468,7 +468,7 @@ const P_ICE=CFG.pice||450e3,P_ERS=300e3,ERS_CAP=4.0e6,HARV_LAP=8.5e6;
 /* grip calibrated against real pole laps: a 2026 car on each circuit's own surface (TK.grip) */const MU0=(CFG.mu||2.1)*(CFG.mu?1:(TK.grip||1)),KD=CFG.kd||3.45,KDL=(CFG.kd||3.45)*.48,CDH=CFG.cdh||.98,CDL=CFG.cdl||.5,FRF=.41,BRK=44000;
 const KRm=v=>1.0+.13*Math.min(1,v/50);
 /* compounds: soft = most grip in its (narrow) window, heats fast, wears fastest; hard = least grip, needs heat, lasts longest */
-const CMP={S:{g:1.06,w:1.8,opt:98,h:1,sat:.15,wd:28,cliff:.58,col:0xe23b3b,nm:'Soft'},M:{g:1,w:1,opt:100,h:1,sat:.12,knee:7,cap:.55,wd:34,cliff:.7,col:0xf2c418,nm:'Medium'},H:{g:.95,w:.55,opt:104,h:.94,sat:.1,knee:6,cap:.42,wd:40,cliff:.8,col:0xf0f0f0,nm:'Hard'}};
+const CMP={S:{g:1.06,w:1.8,dg:.11,opt:98,h:1,sat:.15,wd:28,cliff:.58,col:0xe23b3b,nm:'Soft'},M:{g:1,w:1.35,dg:.1,opt:100,h:1,sat:.12,knee:7,cap:.55,wd:34,cliff:.7,col:0xf2c418,nm:'Medium'},H:{g:.95,w:.95,dg:.09,opt:104,h:.94,sat:.1,knee:6,cap:.42,wd:40,cliff:.8,col:0xf0f0f0,nm:'Hard'}};
 /* v65: every compound now flattens off above its working range. The soft is unchanged; the medium flattens a little lower in its range and
    more firmly, the hard more again, so at the same pace the medium runs further from overheating than the soft and the hard further still */
 /* cold tyres have much less grip; overheated tyres lose grip too (and wear and blister faster) */
@@ -486,7 +486,8 @@ const airK=()=>Math.exp(-altOf()/8500)*(288.15/(273.15+(typeof WX!=='undefined'&
 const laneTemp=(i,lt)=>(surfT(i,lt)-TRACK.T)*.7+(Math.min(1,(rubAt(i,lt+.8)+rubAt(i,lt-.8))/2)-.15)*6;
 /* car set-up: wing (downforce v drag), aero balance, ride height, suspension stiffness; -1..1 each */
 const SETUP0={w:0,b:0,r:0,s:0,d:0,af:0,ar:0,c:0,k:0,a:0,x:0,bb:0,g:0};
-const tyreWearK=(cp,w)=>1-.08*w-1.0*Math.max(0,w-cp.cliff)**2;
+/* grip falls steadily as the tyre wears (faster on the softer compounds) and drops away past the cliff */
+const tyreWearK=(cp,w)=>1-(cp.dg??.08)*w-1.5*Math.max(0,w-cp.cliff)**2;
 /* rubber laid on the track: 16 lanes across the road, builds up where cars drive, a little extra grip */
 const RBW=16,RUB=new Float32Array(N*RBW);
 const rubBin=lt=>Math.floor((lt+HW)/(2*HW)*RBW);
@@ -901,7 +902,7 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
  const cs=Math.cos(c.th),sn=Math.sin(c.th);
  c.x+=(c.vx*cs-c.vy*sn)*dt;c.y+=(c.vx*sn+c.vy*cs)*dt;c.th+=c.r*dt;c.af=af;c.ar=ar;
  c.spin=Math.abs(ar)>.3&&v>10?c.spin+dt:0;
- c.fuel=Math.max(0,c.fuel-c.thr*v*dt*3.0e-4*(c.isSC?0:1));if(c.isSC)c.mass=M0+c.fuel;if(c.fuel<=0&&!c.out&&!c.isSC&&v>5){c.thr=0;retire(c,'Out of fuel')}
+ c.fuel=Math.max(0,c.fuel-c.thr*v*dt*3.0e-4*(c.isSC?0:1));if(c.isSC)c.mass=M0+c.fuel;if(c.fuel<=0&&!c.out&&!c.isSC&&!c.fin&&v>5){c.thr=0;retire(c,'Out of fuel')}
  {const load=(Fzf+Fzr)/(m*G),bump=VK[c.idx]>.0012||c.kerb>.35,br=c.broke;let sc=0;
   if(v>38&&load>2.7+.25*su.r&&bump)sc=Math.min(1,(load-2.7-.25*su.r)*.8+(c.kerb>.35?.3:0));
   if(br.fl||br.fr||br.rl||br.rr)sc=Math.max(sc,v>3?1:0);if(dm.floor>.4&&v>30)sc=Math.max(sc,.3*dm.floor);if(Math.max(p[0],p[1],p[2],p[3])>.85&&v>10)sc=Math.max(sc,.25*Math.max(p[0],p[1],p[2],p[3]));
@@ -962,7 +963,8 @@ function applyHit(c,px,py,j,kind){if(c.gone||c.isSC)return;
  const prev=c._hw.sev,sev=sevTot-prev;if(sev<=.4)return;c._hw.sev=sevTot;const over=th=>Math.max(0,sevTot-th)-Math.max(0,prev-th);c.lastHit=SIMT();c.lastHitSev=sevTot;c.hitSide=ly>0?1:-1;
  const L=ly>0;
  /* remember where the bodywork was hit (car-local, model axes: x forward, y up, z = -left) for the dent shader */
- if(sev>2){if(!c.dents)c.dents=[];const d0=Math.min(.15,sev*.006),near=c.dents.find(d=>Math.hypot(d.x-lx,d.z+ly)<.35);if(near){near.d=Math.min(.2,near.d+d0*.6);near.r=Math.min(.8,near.r+.05)}else{c.dents.push({x:cl(lx,-2.4,2.7),y:.38+Math.min(.25,sev*.006),z:-cl(ly,-.95,.95),r:.26+Math.min(.45,sev*.015),d:d0});if(c.dents.length>8)c.dents.shift()}c.dentV=(c.dentV||0)+1}
+ /* v67: a light touch leaves a shallow scrape of paint where it landed; a hard one pushes the panel in */
+ if(sev>.6){if(!c.dents)c.dents=[];const d0=sev>2?Math.min(.15,sev*.006):.006+sev*.003,near=c.dents.find(d=>Math.hypot(d.x-lx,d.z+ly)<.35);if(near){near.d=Math.min(.2,near.d+d0*.6);near.r=Math.min(.8,near.r+.05)}else{c.dents.push({x:cl(lx,-2.4,2.7),y:.38+Math.min(.25,sev*.006),z:-cl(ly,-.95,.95),r:(sev>2?.26:.16)+Math.min(.45,sev*.015),d:d0});if(c.dents.length>8){/* keep the deep ones: the oldest light scrape goes first */let k=0;for(let i=1;i<c.dents.length-1;i++)if(c.dents[i].d<c.dents[k].d)k=i;c.dents.splice(k,1)}}c.dentV=(c.dentV||0)+1}
  /* the body reacts to the blow: it is thrown up and tipped away from it. Touching wheels with another car can launch it */
  {const wheelTouch=kind==='car'&&(Math.abs(lx-A)<.7||Math.abs(lx+B)<.7)&&Math.abs(Math.abs(ly)-.8)<.6,k=Math.min(1,sev/30);
   const up=Math.min(wheelTouch?4.5:2.6,sev*(wheelTouch?.16:kind==='wall'?.05:.07)),vr=(L?1:-1)*Math.min(2.6,sev*.07),vp=(lx>1?-1:lx<-1?1:0)*Math.min(1.8,sev*.05)+(wheelTouch?(lx>0?.8:-.8)*k:0);
@@ -1048,6 +1050,8 @@ const isFly=o=>R.type!=='R'&&!o.pitPh&&!o.out&&!o.park&&!o.gone&&(o.human&&!o.ai
 const turnOf=i=>{let b=0,bd=1e9;CORNERS.forEach((k,j)=>{const d=Math.min(W(k-i),W(i-k));if(d<bd){bd=d;b=j}});return b+1};
 /* a loss of control: work out what went wrong and attack this corner differently next time */
 function adaptLoss(c,s,why){const pv=(s+NSEG-1)%NSEG,nx=(s+1)%NSEG;c.mMem[s]=Math.min(9,c.mMem[s]+1);let say=null;
+ /* the same mistake at the same place a second time: a firm step back there, and the pace is not allowed to creep up again */
+ if(c.mMem[s]>=2){c.pace[s]=Math.max(.84,c.pace[s]-.012);c.plim[s]=Math.min(c.plim[s],c.pace[s]+.004)}
  if(why==='brake'){c.aB[s]=Math.min(1.18,c.aB[s]+.05);c.aB[pv]=Math.min(1.12,c.aB[pv]+.025);say='Locked up into Turn '+turnOf(c.idx)+'. I will brake earlier there.'}
  else if(why==='exit'){c.aT[s]=Math.max(.62,c.aT[s]-.1);c.aT[nx]=Math.max(.7,c.aT[nx]-.05);say='Lost the rear on exit of Turn '+turnOf(c.idx)+'. Smoother on the throttle next time.'}
  else{c.aL[s]=Math.min(1.0,c.aL[s]+.25);if(c.pLoss[s]<.025){c.pace[s]=Math.max(.86,c.pace[s]-.006);c.pLoss[s]+=.006}c.aB[s]=Math.min(1.15,c.aB[s]+.02);say='Ran wide in Turn '+turnOf(c.idx)+'. Trying a tighter line there.'}
@@ -1141,7 +1145,7 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
  else if(c.pitPh===1&&lt<-(HW+3)&&!inPitLane(c.idx,lt)&&(rel>=N-40||rel<RR+6)){c.pitPh=0;c.pitMiss=(c.pitMiss||0)+1}
  /* missed the pit entry and pinned against the pit wall: give up this lap, come round and try again */
  if(c.pitPh===1&&!inPitLaneC(c)&&Math.hypot(c.vx,c.vy)<1.2){c.pitPin=(c.pitPin||0)+dt;if(c.pitPin>3){c.pitPh=0;c.pitPin=0;c.pitMiss=(c.pitMiss||0)+1}}else c.pitPin=0;
- if(c.pitReq&&!c.pitPh&&rel>=N-40&&(rel<N-14||lt>HW-2.5)&&lt>-(HW+2)&&R.phase!=='formation'&&R.phase!=='grid'){c.pitPh=1;const mate=R.cars.find(o=>o!==c&&o.team===c.team&&(o.pitPh===1||o.pitPh===2)&&!o.park);c.stopRel=RB(c.team)-(mate?1.95:0)}
+ if(c.pitReq&&!c.pitPh&&rel>=N-40&&(rel<N-14||lt>HW-2.5)&&lt>-(HW+2)&&(c.pitStart||(R.phase!=='formation'&&R.phase!=='grid'))){c.pitPh=1;const mate=R.cars.find(o=>o!==c&&o.team===c.team&&(o.pitPh===1||o.pitPh===2)&&!o.park);c.stopRel=RB(c.team)-(mate?1.95:0)}
  if(R.type==='R'&&(c.pitMiss||0)>=2&&c.dmgSlow&&!c.pitPh&&!c.out){retire(c,'Damage');c.pitMiss=0}
  if(c.pitPh===3)c.stopRel=null;
  /* heading for the stacking spot but the team-mate has already gone: use the box itself */
@@ -1216,6 +1220,10 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
    for(const o of R.all){if(o===c||o.gone||o.park||o.out||o.pitPh)continue;if(!o.isSC&&Math.hypot(o.vx,o.vy)<1.5)continue;let dd=W(c.idx-o.idx)*DS;if(dd>N*DS/2)dd-=N*DS;if(dd>-30&&dd<250){blk=true;break}}
    c.scHoldT=blk?(c.scHoldT||0)+dt:0;
    if(blk&&c.scHoldT<45){tv=Math.min(tv,Math.sqrt(2*6*Math.max(0,((ASP?ZL-RX:ZL)-.5-rel)*DS)));c.exitWait=simT;c.pfYield=simT}}
+  /* a pit lane start: wait at the end of the pit lane until the lights are out and every car on the grid has gone past */
+  if(c.pitStart&&c.pitPh===3){let hold=R.phase!=='run';if(!hold){const ex=W(ZL-PB);if(!c.psWait){c.psWait=R.all.filter(o=>o!==c&&!o.out&&!o.isSC&&!o.pitPh&&!o.park&&W(ex-o.idx)<N/3);c.psT0=simT}
+    c.psWait=c.psWait.filter(o=>!o.out&&!o.pitPh&&W(ex-o.idx)<N/3);hold=c.psWait.length>0&&simT-c.psT0<45}
+   if(hold)tv=Math.min(tv,Math.sqrt(2*6*Math.max(0,((ASP?ZL-RX:ZL-2)-.5-rel)*DS)));else{c.pitStart=0;c.psWait=null}}
   /* pit exit blend: hold the pit-side edge until clear of the blend line */
   if(c.pitPh===3&&!ASP&&rel>=ZL-RX*1.2&&rel<N-60){const e=HW-1.25;if(tLat<e){tLat=e;const lf=latFn;latFn=k=>Math.max(lf(k),relOf(k)<ZL+40?e:lf(k))}}
   if(c.pitPh===3&&rel>=ZL&&rel<N-60){c.pitPh=0;c.pitReq=false;c.joinT=simT;c.pitOutT=simT;if(c.thru)dtServed(c)}
@@ -1253,7 +1261,8 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
    const fx=dx*cs+dy*sn,ly=-dx*sn+dy*cs;if(fx<-40||fx>150)continue;
    const ov=Math.hypot(o.vx,o.vy),gap=R.scBunch&&!c.isSC&&!c.unlap?3.3:(R.slow||(R.restart&&!R.go))&&!c.isSC?8+.16*v:7.5+.21*v,oLat=o.lt,olv=(o.vx*Math.cos(o.th-c.th)-o.vy*Math.sin(o.th-c.th)),close=v-olv;
    const cFly=R.type!=='R'&&isFly(c),qFree=cFly&&!isFly(o)&&!o.out&&ov>5;/* on a flying lap with a slower car ahead: it is for that car to move over, and we do not slow down for it */
-   const lapping=o.prog<c.prog-LEN*.5||(R.type!=='R'&&cFly&&!isFly(o));
+   /* a limping car, or one being shown blue flags: nobody waits behind it, it is passed at the first gap like a backmarker */const slowO=R.type==='R'&&!o.out&&!o.isSC&&!c.dmgSlow&&(o.dmgSlow||(o.blue&&simT-o.blue<3&&o.prog<c.prog-LEN*.5));
+   const lapping=o.prog<c.prog-LEN*.5||slowO||(R.type!=='R'&&cFly&&!isFly(o));
    /* a car slowing for the pit entry, or anyone in a neutralised queue: follow it by distance along the track and lane, so a
       car off to one side of our nose in a bend (or already peeling off to the pit lane) is still respected */
    if(!c.isSC&&!c.unlap&&!o.dmgSlow/* a limping car is not queued behind: it is passed, under the safety car too */&&((o.pitPh===1&&relOf(o.idx)>=ZL)||(R.slow&&!o.pitPh&&!o.out))){let dA=W(o.idx-bi)*DS;if(dA>N*DS/2)dA-=N*DS;if(R.scBunch){dA=(((progX(o)-progX(c))%LEN)+LEN)%LEN;if(dA>LEN/2)dA-=LEN}/* closing up under the safety car: the exact distance, not whole track samples */
@@ -1274,12 +1283,12 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
     const pullAt=Math.max(6,.2*v),strLeft=nc?nc.j*DS:400,commit=strLeft<v*1.4+35;
     if(race&&straight&&fx>pullAt&&fx<85&&want===null&&!commit){want=oLat;c.towing=1;c.atk=0}
     /* ---- attack: commit to a side when closing (tow, overtake mode or better exit) ---- */
-    const room=straight||(nc&&nc.j>9),qr=straight&&!commit,canPass=(race||lapping)&&!R.yellowAt(bi)&&!o.isSC&&(qFree?true:room)&&(close>.2||c.tow>.2||c.ot)&&fx<(qFree?Math.max(45,close*3.2+12):c.ot&&straight?48:32)&&(lapping||!straight||fx<=pullAt||commit||(c.ot&&strLeft>v*2.2));
-    if(canPass&&(want===null||c.towing)){let side=qFree&&Math.abs(oLat-lt)>.3?(oLat>lt?-1:1):c.atkSide||(nc?nc.dir:(oLat>0?-1:1));if(Math.abs(oLat+side*3.4)>HW-1)side=-side;c.atkSide=side;want=oLat+side*3.4;c.atk=1;c.towing=0}
+    const room=straight||(nc&&nc.j>9),qr=straight&&!commit,canPass=(race||lapping)&&!R.yellowAt(bi)&&!o.isSC&&(qFree||slowO?true:room)&&(close>.2||c.tow>.2||c.ot||c.otOK)&&fx<(qFree||slowO?Math.max(45,close*3.2+12):c.ot&&straight?52:c.otOK?38:32)&&(lapping||!straight||fx<=pullAt||commit||(c.ot&&strLeft>v*2.2));
+    if(canPass&&(want===null||c.towing)){let side=(qFree||slowO)&&Math.abs(oLat-lt)>.3?(oLat>lt?-1:1):c.atkSide||(nc?nc.dir:(oLat>0?-1:1));if(Math.abs(oLat+side*3.4)>HW-1)side=-side;c.atkSide=side;want=oLat+side*3.4;c.atk=1;c.towing=0}
     /* ---- late-braking lunge down the inside ---- */
-    else if(race&&!lapping&&nc&&nc.j<32&&nc.j>5&&fx<10&&fx>-1&&Math.abs(ly)>1.4&&Math.sign(ly)===-nc.dir&&c.diveSeg!==segOf(bi)&&rnd()<(.26+aggr*.4)*(typeof isRival==='function'&&isRival(c,o)?1.3:1)&&c.emerg<.1){c.diveSeg=segOf(bi);c.mLate=.07+.1*aggr;want=oLat+nc.dir*3.3;c.atk=1}
+    else if(race&&!lapping&&nc&&nc.j<32&&nc.j>5&&fx<10&&fx>-1&&Math.abs(ly)>1.4&&Math.sign(ly)===-nc.dir&&c.diveSeg!==segOf(bi)&&!(c.fltSeg&&c.fltSeg[segOf(bi)])&&rnd()<(.26+aggr*.4)*(c.riskK??1)*(c.otOK?1.5:1)*(typeof isRival==='function'&&isRival(c,o)?1.3:1)&&c.emerg<.1){c.diveSeg=segOf(bi);c.mLate=.07+.1*aggr;want=oLat+nc.dir*3.3;c.atk=1}
     /* ---- a big risk: lunge from further back and brake very late (can win the place or end in the wall) ---- */
-    else if(race&&!lapping&&nc&&nc.j<40&&nc.j>6&&fx<20&&fx>3&&c.riskSeg!==segOf(bi)&&R.phase==='run'){c.riskSeg=segOf(bi);if(rnd()<(.05+.11*aggr*(c.style?c.style.risk:1))*(typeof isRival==='function'&&isRival(c,o)?1.4:1)){c.mLate=.16+.14*aggr;want=cl(oLat+nc.dir*3.4,-(HW-.9),HW-.9);c.atk=1;c.riskT=simT;c.ev&&c.ev('risk','attack')}}
+    else if(race&&!lapping&&nc&&nc.j<40&&nc.j>6&&fx<20&&fx>3&&c.riskSeg!==segOf(bi)&&R.phase==='run'){c.riskSeg=segOf(bi);if(!(c.fltSeg&&c.fltSeg[segOf(bi)])&&rnd()<(.05+.11*aggr*(c.style?c.style.risk:1))*(c.riskK??1)*(typeof isRival==='function'&&isRival(c,o)?1.4:1)){c.mLate=.16+.14*aggr;want=cl(oLat+nc.dir*3.4,-(HW-.9),HW-.9);c.atk=1;c.riskT=simT;c.ev&&c.ev('risk','attack')}}
     /* ---- following through the turns: different line to set up the exit ---- */
     else if(race&&!straight&&fx<20&&want===null&&!lapping&&nc&&nc.j<25){want=RO[ti]-nc.dir*1.1*(c.exitK?(.6+c.exitK[segOf(bi)]):1)}
     const stopped=(o.out||ov<4)&&(oLat+3.6<HW-1||oLat-3.6>-(HW-1));
@@ -1287,7 +1296,7 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
     /* bump draft: flat out on a straight in the tow, with no braking zone coming, close right up to the gearbox of the car ahead,
        nose to within about a metre, then hold it there (no contact) */
     else if(race&&straight&&!commit&&!lapping&&(o.brk||0)<.08&&c.brk<.05&&fx<gap*2&&Math.abs(ly)<2.3){const gB=6.4+.02*v;cap=Math.min(cap,fx<gB?ov*.985:ov+Math.sqrt(2*2.6*(fx-gB)))}
-    else if(fx<gap*2&&Math.abs(ly)<2.3&&!(qFree&&(fx-5.4)/Math.max(.1,close)>(qr?.9:1.2))){cap=Math.min(cap,Math.max(5,ov*(.9+.1*fx/(gap*2))));if(fx<gap*.55)cap=Math.min(cap,ov*.82)}
+    else if(fx<gap*2&&Math.abs(ly)<2.3&&!((qFree||slowO)&&(fx-5.4)/Math.max(.1,close)>(qr?.9:1.2))){cap=Math.min(cap,Math.max(5,ov*(.9+.1*fx/(gap*2))));if(fx<gap*.55)cap=Math.min(cap,ov*.82)}
     /* in a slow queue: never closer than we can stop if the car ahead stops (no accordion bumps) */
     if((R.slow||(R.restart&&!R.go)||R.phase==='formation')&&!c.isSC&&!c.unlap&&!stopped&&!(o.dmgSlow&&R.phase!=='formation')&&fx>0&&fx<gap*3+v&&Math.abs(ly)<3){/* following under a neutralisation: assume the car ahead may keep braking as hard as it is now, and keep a gap we could stop in */const ovp=Math.max(0,ov-((o.brk||0)>.2?6*(o.brk||0):0));cap=Math.min(cap,Math.sqrt(ovp*ovp+2*5*Math.max(0,R.scBunch?fx-8.6:fx-7.5-.3*v)))}}
    /* ---- no overtaking (safety car, VSC, red flag, before the restart line, waved yellows): stay behind whatever line the car ahead takes ---- */
@@ -1297,11 +1306,16 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
    if(fx<-1&&fx>-14&&Math.abs(ly)<4.5&&ov>v-2&&!o.pitPh&&!o.out&&R.type==='R'&&(!att||fx>att.fx))att={lt:oLat,fx};
    /* ---- wheel to wheel: hold a car's width of room, the car behind on the outside yields ---- */
    if(exiting&&fx>-25&&fx<160&&!c.pitPh){want=cl(Math.min(want??lt,o.lt-3.8),-(HW-1),HW-1);if(fx>0&&fx<70&&Math.abs(ly)<2.6)cap=Math.min(cap,Math.max(ov,ov+(fx-8)*.5))}
-   if(Math.abs(fx)<6.2&&Math.abs(ly)<3.3&&(!o.pitPh||exiting)){c.segBusy=1;const need=ly>0?oLat-3.3:oLat+3.3,lim=HW-1.1;want=ly>0?Math.min(want??lt,need):Math.max(want??lt,need);
+   /* a car level with us further across the road: our line may not sweep over to where it is (turning in across a car alongside is the classic collision) */
+   if(R.type==='R'&&fx>-7.5&&fx<7.5+Math.max(0,close)*.7&&Math.abs(ly)>=3.3&&Math.abs(ly)<12&&!o.pitPh&&!o.out&&!c.pitPh){/* the faster we are sliding across towards it, the more room we aim to leave (a car cannot stop moving sideways at once) */const cLat=((c.lt-(c.ltPrev??c.lt))-(o.lt-(o.ltPrev??o.lt)))*240*Math.sign(ly),mg=3.4+cl(cLat*.3,0,1.8),need=ly>0?oLat-mg:oLat+mg,base=want??RO[ti];if(ly>0?base>need:base<need){want=need;c.segBusy=1;if(fx>-1)slowK=Math.min(slowK,.96)}}
+   if(Math.abs(fx)<6.2&&Math.abs(ly)<3.3&&(!o.pitPh||exiting)){c.segBusy=1;const cLat2=R.type==='R'?((c.lt-(c.ltPrev??c.lt))-(o.lt-(o.ltPrev??o.lt)))*240*Math.sign(ly):0,mg2=3.3+cl(cLat2*.3,0,1.2),need=ly>0?oLat-mg2:oLat+mg2,lim=HW-1.1;want=ly>0?Math.min(want??lt,need):Math.max(want??lt,need);
     /* no room left on this side of the road: back out of it rather than going off the track */
     if(Math.abs(want)>lim){want=cl(want,-lim,lim);if(fx<2.5)slowK=Math.min(slowK,fx<0?.88:.95)}
     /* nearly touching: the car that is behind (or level) eases off until there is daylight again; never lean on the other car */
     if(R.type==='R'&&Math.abs(ly)<2.75&&fx>-.8&&!o.out)slowK=Math.min(slowK,Math.abs(ly)<2.3?.86:.92);
+    /* side by side through a corner: the inside car eases off enough to hold its line instead of sliding out into the car outside it,
+       and the outside car gives up the fight unless it is clearly ahead */
+    if(R.type==='R'&&Math.abs(KRs[bi])>1/260&&Math.abs(ly)<3.8&&!o.out){const oOut=ly*KRs[bi]<0;slowK=Math.min(slowK,oOut?.94:fx>-1.5?.93:1);/* where it has been penalised before, it gives the place up */if(c.fltSeg&&c.fltSeg[segOf(bi)]&&fx>-2)slowK=Math.min(slowK,.9)}
     if(nc&&nc.j<40){const inside=Math.sign(ly)===nc.dir;if(inside&&fx<-1.5)slowK=Math.min(slowK,.97);
      /* switchback: they dived up the inside, so we go wide, turn early and get the better exit */
      if(inside&&fx>-1&&fx<4&&race&&!straight){c.cutback=segOf(bi);slowK=Math.min(slowK,.985)}}}
@@ -1340,7 +1354,7 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
     if(hot>.45&&!c.press){want=pick(false);slowK=Math.min(slowK,1-.015*Math.min(1,hot))}
     else if(cold>.5&&(R.type!=='R'||R.slow||c.modeK<.95)){want=cl(pick(true)+Math.sin(simT*2.3+c.k)*1.6,-(HW-1.6),HW-1.6)}}}
   /* just out of the pits: keep off the racing line until up to speed */
-  if(c.joinT&&simT-c.joinT<25&&!c.isSC){if(v<.9*VR[bi]&&relOf(bi)<(ASP?XLR+6:ZL+160)){want=HW-1.25;c.off=Math.max(c.off||0,0)}else c.joinT=0}
+  if(c.joinT&&simT-c.joinT<25&&!c.isSC){if(v<.9*VR[bi]&&relOf(bi)<(ASP?XLR+6:ZL+160)&&lt>HW-4.5/* only while still on the pit-exit side: a car that has already moved across never cuts back over the track */){want=HW-1.25;c.off=Math.max(c.off||0,0)}else c.joinT=0}
   /* a puncture or a missing nose: the car has little grip at that end, so it crawls back (corners too) */
   if(c.dmgSlow&&!c.isSC){const pf=(c.punct[0]?1:0)+(c.punct[1]?1:0),pr=(c.punct[2]?1:0)+(c.punct[3]?1:0);slowK=Math.min(slowK,pf?.45-.06*(pf-1)-(c.broke.fw?.06:0):1,pr?.52-.06*(pr-1):1);if(pf||pr)cap=Math.min(cap,pf+pr>1||c.broke.fw?24:32)}
   if(c.dmgSlow&&!c.isSC){slowK=Math.min(slowK,c.punct.some(x=>x)||c.broke.fw?.62:.78,(c.spinLog&&c.spinLog.length>=2)||Math.max(c.tt[0],c.tt[1])>CMP[c.cmp].opt+CMP[c.cmp].wd*2?.66:1);if(want===null&&(straight||!nc||nc.j>8)){if(cb&&cb.fx>-40)want=holdLine();else{const sd=RO[ti]>.5?-1:RO[ti]<-.5?1:(lt>0?1:-1);want=cl(sd*(HW-1.7),-(HW-1.7),HW-1.7)}}}
@@ -1383,7 +1397,7 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
   c.att=att;
   /* formation lap: steady pace behind the car ahead, weave to warm the tyres, line up on the grid slot */
   if(R.phase==='formation'&&c.fmGone&&!c.fmDone){const rem=fmRem(c),g=gridSlot(c.gridPos);let fv=Math.min(.56*VR[bi],46);
-   if(rem<320){const u=sm((320-rem)/120),tgt=rem>14?0:g.lt*sm((14-rem)/10);tLat=lerp(tLat,tgt,u);const t0=tLat;latFn=()=>t0;fv=Math.min(fv,Math.sqrt(2*3.2*Math.max(0,rem-.25))+.75)}
+   if(rem<320){const u=sm((320-rem)/120),tgt=g.lt*sm((70-rem)/45);tLat=lerp(tLat,tgt,u);const t0=tLat;latFn=()=>t0;fv=Math.min(fv,Math.sqrt(2*3.2*Math.max(0,rem-.25))+.75)}
    else if(STR[bi]&&v>14&&v<32&&!nextCorner(bi,36)&&want===null&&!cars.some(o=>o!==c&&!o.out&&!o.park&&Math.hypot(o.x-c.x,o.y-c.y)<24)){/* weave to warm the tyres: gentler at speed, and not at all while the rear is already moving */c.wvA=(c.wvA??1)+(((Math.abs(c.ar)>.05||(c.wspin||0)>.05)?0:cl((42-v)/14,.35,1))-(c.wvA??1))*.05;const wv=Math.sin(simT*1.5+c.k*.8)*2.2*c.wvA;tLat=cl(tLat+wv,-(HW-1.6),HW-1.6);const t0=tLat;latFn=k=>cl(RO[k]+wv,-(HW-1.6),HW-1.6)}
    /* cars already sitting in their grid slots: a late arrival threads between them at walking pace, down the middle */
    {let dmin=1e9;for(const o of cars){if(o===c||!o.fmDone||o.out)continue;const d=W(o.idx-c.idx)*DS;if(d<N*DS/2&&d<dmin)dmin=d}
@@ -1710,7 +1724,8 @@ function pitDecision(c){if(R.type!=='R'||c.out||c.fin||c.pitReq||!c.plan)return;
  else if(wear>.83&&left>2)why='wear';
  /* the wrong tyre: repeated mistakes on a set that will not stay in its window. Change it (softer if cold, harder if overheating) */
  else if(c.ai&&left>=4&&(c.stMist||0)>=3&&((c.winCold||0)>50||(c.winHot||0)>50)&&!c.tyreSwap){why='tyre';c.tyreSwap=1}
- else if(R.flag==='SC'||R.flag==='VSC'){if((hasNext&&lap+1>=st.to*.5)||mustTwo){why='sc'}}
+ /* a stop under the safety car is cheap, but only worth it on tyres that have done real work: nobody throws away a new set */
+ else if(R.flag==='SC'||R.flag==='VSC'){if(wear>.3&&((hasNext&&lap+1>=st.to*.5)||mustTwo)){why='sc'}}
  else if(hasNext&&lap+3>=st.to&&c.ahead&&c.ahead.gap<1.6&&rnd()<c.tm.aggr*.5)why='undercut';
  if(!why&&mustTwo&&left<=2)why='rule';
  if(!why)return;
@@ -1760,7 +1775,10 @@ function dtServed(c){c.thru=0;if(c.bfDsq){c.bfDsq=false;c.dtPend=null;toGarage(c
 function dsqCar(c,why){if(!c||c.isSC||c.out||c.dsq||R.type!=='R')return;c.dsq=true;c.dsqWhy=why;c.bfDsq=true;c.dtPend=null;c.bfBy=c.lapsDone+2;
  msg('BLACK FLAG – '+carTag(c)+' DISQUALIFIED – '+why.toUpperCase(),'rc',c);eng(c,'Black flag. You are disqualified: '+why+'. Come into the pits now.');
  if(!c.pitPh&&!c.out)c.pitReq=true}
-function onContact(a,b,j,cx,cy){if(!b||a.isSC||b.isSC||R.type!=='R'||R.phase!=='run'||j<1500||a.out&&b.out||(a.pf&&b.pf))return;const light=j<3500;
+/* a penalty is a lesson: the driver at fault takes fewer risks for the rest of the weekend, and none at all at the place where it happened */
+function learnFault(c,s,k){if(!c||c.isSC||s==null)return;if(!c.fltSeg)c.fltSeg=new Uint8Array(NSEG);for(const q of [(s+NSEG-1)%NSEG,s,(s+1)%NSEG])c.fltSeg[q]=Math.min(9,c.fltSeg[q]+k);c.riskK=Math.max(.25,(c.riskK??1)*(k>1?.55:.72));
+ if(c.aB){c.aB[s]=Math.min(1.15,c.aB[s]+.03)}if(c.ai&&typeof radio==='function'&&rnd()<.6)radio(c,'That one was on me. I will give more room there.')}
+function onContact(a,b,j,cx,cy){if(!b||a.isSC||b.isSC||R.type!=='R'||R.phase!=='run'||j<1500||a.out||b.out||(a.pf&&b.pf))return;const light=j<3500;
  /* the stewards' reading of a contact: who was where (ahead, behind, alongside), who moved across, who was out of control,
     who braked for no reason, who lunged from too far back. Ambiguous or shared contact is a racing incident */
  const loc=(c)=>{const dx=cx-c.x,dy=cy-c.y;return dx*Math.cos(c.th)+dy*Math.sin(c.th)};
@@ -1788,7 +1806,7 @@ function onContact(a,b,j,cx,cy){if(!b||a.isSC||b.isSC||R.type!=='R'||R.phase!=='
  if(!f&&!rear){if(lapped(a,b)&&a.blue&&simT-a.blue<12){f=a;why='a lapped car ignoring blue flags'}else if(lapped(b,a)&&b.blue&&simT-b.blue<12){f=b;why='a lapped car ignoring blue flags'}}
  if(!f){if(light)return;if(j>8000&&typeof rpEvent==='function')rpEvent('contact',a,'& '+b.code);if(j>8000&&!R.inv.some(x=>((x.f===a&&x.v===b)||(x.f===b&&x.v===a))&&simT-x.t0<10)&&simT-(R.riT||-99)>8){R.riT=simT;msg('LAP '+lapNo(a)+' TURN '+turnOf(a.idx)+' CONTACT BETWEEN CARS '+a.num+' ('+a.code+') AND '+b.num+' ('+b.code+') – RACING INCIDENT','rc')}return}
  const v=f===a?b:a;if(R.inv.some(x=>((x.f===f&&x.v===v)||(x.f===v&&x.v===f))&&simT-x.t0<10))return;
- mindEv(v,'hitBy',f);if(typeof rpEvent==='function')rpEvent('contact',f,'hits '+v.code);{const sum=c=>{let t=0;for(const k in c.dm)t+=c.dm[k];return t};R.inv.push({f,v,why,t0:simT,at:simT+rr(8,14),turn:turnOf(a.idx),lap:lapNo(a),lapF:lapped(f,v),sp:0,lost:0,quiet:light,d0:sum(v),p0:v.pos})}if(!light)msg('LAP '+lapNo(a)+' TURN '+turnOf(a.idx)+' INCIDENT INVOLVING CARS '+a.num+' ('+a.code+') AND '+b.num+' ('+b.code+') UNDER INVESTIGATION – CAUSING A COLLISION','rc')}
+ mindEv(v,'hitBy',f);if(typeof rpEvent==='function')rpEvent('contact',f,'hits '+v.code);{const sum=c=>{let t=0;for(const k in c.dm)t+=c.dm[k];return t};R.inv.push({f,v,why,t0:simT,at:simT+rr(8,14),turn:turnOf(a.idx),lap:lapNo(a),lapF:lapped(f,v),sp:0,lost:0,quiet:light,d0:sum(v),p0:v.pos,seg:segOf(f.idx)})}if(!light)msg('LAP '+lapNo(a)+' TURN '+turnOf(a.idx)+' INCIDENT INVOLVING CARS '+a.num+' ('+a.code+') AND '+b.num+' ('+b.code+') UNDER INVESTIGATION – CAUSING A COLLISION','rc')}
 /* overtaking where it is not allowed: the place has to be handed back, or a penalty follows */
 function illegalPass(c,o,why){if(R.gb.some(x=>!x.done&&x.c===c&&x.o===o))return;R.gb.push({c,o,why,t0:simT});c.giveBack=o;
  const lbl={SC:'UNDER THE SAFETY CAR',VSC:'UNDER THE VIRTUAL SAFETY CAR',restart:'BEFORE THE SAFETY CAR LINE',yellow:'UNDER YELLOW FLAGS',red:'UNDER THE RED FLAG'}[why];
@@ -1817,8 +1835,8 @@ function stewards(){
  const sev=x.lapF?(x.v.out||dmg>.6?-1:pts>=2?30:pts>=1?15:5):(pts>=6?-2:pts>=3?10:pts>=1?5:0);
  const dup=R.inv.some(y=>y!==x&&y.done&&y.pen&&y.f===x.f&&y.turn===x.turn&&y.lap===x.lap);
  if(sev<0&&!dup){x.pen=1;dsqCar(x.f,'a lapped car causing a collision that ended '+x.v.code+'\'s race (turn '+x.turn+', lap '+x.lap+')')}
- else if(sev===-2&&!dup){x.pen=1;giveDT(x.f,'causing a collision'+(x.v.out?' that ended the race of '+x.v.code:' that badly damaged '+x.v.code)+(x.why?' – '+x.why:'')+' (turn '+x.turn+', lap '+x.lap+')')}
- else if(sev&&!dup){x.pen=1;penalise(x.f,sev,'causing a collision'+(x.v.out?' that ended the race of '+x.v.code:x.sp?' that spun '+x.v.code:x.lost?' that sent '+x.v.code+' off':dmg>.08?' that damaged '+x.v.code:'')+(x.why?' – '+x.why:'')+' (turn '+x.turn+', lap '+x.lap+')')}else if(!sev&&!x.quiet)msg('LAP '+x.lap+' TURN '+x.turn+' INCIDENT INVOLVING CARS '+x.f.num+' ('+x.f.code+') AND '+x.v.num+' ('+x.v.code+') REVIEWED – NO FURTHER INVESTIGATION','rc')}}
+ else if(sev===-2&&!dup){x.pen=1;learnFault(x.f,x.seg,2);giveDT(x.f,'causing a collision'+(x.v.out?' that ended the race of '+x.v.code:' that badly damaged '+x.v.code)+(x.why?' – '+x.why:'')+' (turn '+x.turn+', lap '+x.lap+')')}
+ else if(sev&&!dup){x.pen=1;learnFault(x.f,x.seg,1);penalise(x.f,sev,'causing a collision'+(x.v.out?' that ended the race of '+x.v.code:x.sp?' that spun '+x.v.code:x.lost?' that sent '+x.v.code+' off':dmg>.08?' that damaged '+x.v.code:'')+(x.why?' – '+x.why:'')+' (turn '+x.turn+', lap '+x.lap+')')}else if(!sev&&!x.quiet)msg('LAP '+x.lap+' TURN '+x.turn+' INCIDENT INVOLVING CARS '+x.f.num+' ('+x.f.code+') AND '+x.v.num+' ('+x.v.code+') REVIEWED – NO FURTHER INVESTIGATION','rc')}}
 /* ---------- blue flags: a lapped car has to let the cars that are lapping it through ---------- */
 function blueUpdate(dt){
  if(R.type!=='R'||R.phase!=='run'||R.red||R.chq)return;
@@ -2202,7 +2220,10 @@ function sessionCar(c,dt){if(c.out)return;
   const ah=c.ahead,bh=R.order[c.pos];const close=(ah&&ah.gap!=null&&ah.gap<1.3)||(bh&&bh.int!=null&&bh.int<1.1),left=R.laps-(c.lapsDone-1);
   const wear=Math.max(c.tw[0],c.tw[1]),cp=CMP[c.cmp],nearCliff=wear>cp.cliff-.08;
   c.modeK=left<=2?.998:close?.994:nearCliff?.974:.986;if(c.lapsDone<1)c.modeK=.99;
-  c.modeK*=1-.007*(c.tyreMgmt||0);
+  /* overtake mode is a commitment: flat out for the whole lap, no tyre saving, until the move is done */
+  c.modeK*=c.formK||1;
+  const otPush=c.otOK&&c.ai&&!(c.fuelPerLapPlan&&c.fuel<c.fuelPerLapPlan*(left+.7))/* not when the fuel would not last to the flag */;if(otPush)c.modeK=.999;
+  if(!otPush)c.modeK*=1-.007*(c.tyreMgmt||0);
   /* energy: full deployment when attacking or defending, the learned lap budget otherwise, harvest when the battery is low */
   const atk=ah&&ah.gap!=null&&ah.gap<1.1,def=bh&&bh.int!=null&&bh.int<1.0&&!bh.out;
   const soc=c.ers/ERS_CAP,chasing=ah&&ah.gap!=null&&ah.gap<2.2;
@@ -2212,6 +2233,7 @@ function sessionCar(c,dt){if(c.out)return;
   const ag=c.drv?c.drv.aggr||.5:.5,free=!(ah&&ah.gap!=null&&ah.gap<2.6)&&!(bh&&bh.int!=null&&bh.int<2.6);
   if(!c.eplan||c.eplan.lap!==c.lapsDone){const ep={lap:c.lapsDone,mode:'base'};
    if(left<=2)ep.mode='burn';
+   else if(c.otOK)ep.mode='attack';
    else if(ah&&ah.gap!=null&&ah.gap<1.6&&soc>.55-.15*ag)ep.mode='attack';
    else if(ah&&ah.gap!=null&&ah.gap<3&&soc<.45)ep.mode='build';
    else if(free&&soc<.75)ep.mode='build';c.eplan=ep;if(ep.mode==='attack'&&rnd()<.25&&c.ai)radio(c,'Going for it this lap, full deployment.')}
@@ -2221,7 +2243,7 @@ function sessionCar(c,dt){if(c.out)return;
   else if(c.ot)c.depK=1;
   else if(def)c.depK=soc>.2?1:.65;
   else if(c.eplan.mode==='burn')c.depK=1;
-  else if(c.eplan.mode==='attack'||atk)c.depK=soc>.25?1:.6;
+  else if(c.eplan.mode==='attack'||atk||c.otOK)c.depK=soc>.25?1:.6;
   else if(chasing&&!c.otOK&&soc<.38)c.depK=.4;   /* closing in: bank energy so overtake mode is available at the detection line */
   else if(c.eplan.mode==='build')c.depK=.35+.15*ag;
   else c.depK=c.lapDepK??.8;
@@ -2251,12 +2273,14 @@ function sessionCar(c,dt){if(c.out)return;
 function formationUpdate(dt){
  if(simT<R.fmGo)return;
  for(const c of cars){if(c.out)continue;if(c.hold&&!c.fmDone&&!c.fmGone){const ahead=R.grid[c.gridPos-1];if(!ahead||ahead.out||ahead.fmGone&&(ahead.fmD>8||Math.hypot(ahead.vx,ahead.vy)>5)){c.hold=false;c.fmGone=1}}
+  /* damaged on the way to the grid: into the pits for repairs, and the race starts from the end of the pit lane once the field has gone by */
+  if(c.fmGone&&!c.fmDone&&!c.pitStart&&(c.ai||!c.human)&&!c.isSC&&(c.dmgSlow||c.dm.fw>.2||c.broke&&c.broke.fw||c.punct.some(x=>x))){c.pitStart=1;c.pitReq=true;c.pitWhy='damage';c.fmDone=1;c.hold=false;msg(carTag(c)+' IS DAMAGED AND WILL START FROM THE PIT LANE','rc')}
   if(c.fmGone&&!c.fmDone){const rem=fmRem(c),v=Math.hypot(c.vx,c.vy);
    /* the player stops in the box himself: close enough (3 m along, 1.8 m across) at a standstill counts */
    const me=c.human&&!c.ai&&CFG.assist!=='auto',ok=me?Math.abs(rem)<3&&v<.8&&Math.abs(c.lt-gridSlot(c.gridPos).lt)<1.8&&!HIN.c:rem<.6&&v<1.2;
    if(ok){c.vx=c.vy=c.r=0;c.gx=c.x;c.gy=c.y;c.hold=true;c.fmDone=1;if(me)msg('IN POSITION – WAIT FOR THE START','rc')}}}
  const tout=simT-R.fmGo>LEN/12+40;
- if(tout)for(const c of cars)if(!c.fmDone&&!c.out){const g=gridSlot(c.gridPos);placeCar(c,g.i,g.lt);c.gx=c.x;c.gy=c.y;c.hold=true;c.fmDone=1}
+ if(tout)for(const c of cars)if(!c.fmDone&&!c.out&&!c.pitStart){const g=gridSlot(c.gridPos);placeCar(c,g.i,g.lt);c.gx=c.x;c.gy=c.y;c.hold=true;c.fmDone=1}
  if(cars.every(c=>c.fmDone||c.out)){R.phase='grid';R.lights=0;R.lightsAt=simT+1.5;R.outAt=5+rr(.4,2.4);R.noOvertake=false;for(const c of cars){c.tt=[c.tt[0],c.tt[1]];c.jump=0}msg('GRID IS FORMED – START PROCEDURE','rc')}}
 function raceStart(dt){const t=simT-R.lightsAt;if(t<0)return;
  const n=Math.min(5,Math.floor(t));if(n!==R.lights&&t<R.outAt){R.lights=n}
@@ -2322,7 +2346,9 @@ function endSession(){if(R.done)return;R.done=true;standings();const res=R.order
  if(R.type==='Q1'){R.qIn2=ses.slice(0,16);R.qOut=ses.slice(16)}
  if(R.type==='Q2'){R.qIn3=ses.slice(0,10);R.qOut=ses.slice(10).concat(R.qOut||[])}
  if(R.type==='Q3'){const g=[];for(const c of ses.concat(R.qOut||[],cars))if(!g.includes(c))g.push(c);R.grid=g}
- if(R.type==='P'){for(const c of cars)c.practiced=true}
+ if(R.type==='P'){for(const c of cars){c.practiced=true;
+   /* what practice was worth: laps at speed build confidence for the weekend, mistakes take it away (shows as a few tenths in qualifying and the race) */
+   if(!c.isSC&&c.mMem){let mis=0;for(let q=0;q<NSEG;q++)mis+=c.mMem[q];const laps=Math.max(0,(c.lapsDone||0)-1);c.formK=1+cl(.004*Math.min(1,laps/10)-.0006*mis-(laps<3?.004:0),-.006,.004);c.pracLaps=laps;c.pracMis=mis}}}
  R.results[R.type]=(R.type==='R'?res:ses).map(c=>({code:c.code,name:c.name,team:c.tm.name,col:c.col,best:c.best,total:c.total,laps:c.lapsDone,out:c.out,why:c.why,dsq:c.dsq,pen:c.pen,pts:c.pts,lapsDone:c.lapsDone,grid:c.gridPos,ovt:c.ovt||0,vmax:c.vmax||0}));
  msg('SESSION OVER','rc');if(CFG.onEnd)CFG.onEnd(R.type,R.results[R.type])}
 
@@ -2378,7 +2404,7 @@ function onResize(){renderer.setSize(innerWidth,innerHeight,false);cam.aspect=in
 addEventListener('resize',onResize);onResize();
 const HEMI=new THREE.HemisphereLight(0xdfeeff,0x4a5a3a,.75);scene.add(HEMI);
 const sun=new THREE.DirectionalLight(0xfff1dc,.95);sun.position.set(120,220,80);scene.add(sun);scene.add(sun.target);
-if(HIQ){sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);const sc=sun.shadow.camera;sc.left=-45;sc.right=45;sc.top=45;sc.bottom=-45;sc.near=10;sc.far=500;sun.shadow.bias=-.0008}
+if(HIQ){sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);const sc=sun.shadow.camera;sc.left=-45;sc.right=45;sc.top=45;sc.bottom=-45;sc.near=10;sc.far=500;sun.shadow.bias=-.0006;sun.shadow.normalBias=.035/* v67: no striped self-shadowing on sloping ground and bodywork */}
 /* ---------- procedural textures ---------- */
 function canvasTex(w,h,draw,rep){const cv=document.createElement('canvas');cv.width=w;cv.height=h;const g=cv.getContext('2d');draw(g,w,h);const t=new THREE.CanvasTexture(cv);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=MAXANI;if(rep)t.repeat.set(rep[0],rep[1]);return t}
 function noise(g,w,h,n,c0,amp,size){for(let i=0;i<n;i++){const x=rnd()*w,y=rnd()*h,v=(rnd()-.5)*amp;g.fillStyle=`rgba(${c0+v|0},${c0+v|0},${c0+v|0},${.25+rnd()*.35})`;g.fillRect(x,y,size*(.5+rnd()),size*(.5+rnd()))}}
@@ -3015,7 +3041,7 @@ const wheelGeo={};
    flattened arc of tread fixed to the tyre (so it comes round once a turn). Done in the vertex shader, rim untouched */
 /* v65 tyre wear you can see on the tread: fresh rubber is deep black; used rubber turns a dull scrubbed grey; graining tears it into fine
    ridges across the tread; marbles (balls of rubber picked up off line) stick to it; overheating leaves dark blisters */
-const TYRE_WEAR_GLSL='if(uWear+uGrain+uMarb+uBlis>0.002){float rr=length(vTP.xy);if(rr>uR-0.016){float an=atan(vTP.y,vTP.x),zz=vTP.z;'+
+const TYRE_WEAR_GLSL='if(uWear+uGrain+uMarb+uBlis+abs(uHot)>0.002){float rr=length(vTP.xy);if(rr>uR-0.016){float an=atan(vTP.y,vTP.x),zz=vTP.z;'+
  'float h1=fract(sin(dot(floor(vec2(an*420.0,zz*260.0))+uSeed,vec2(12.9898,78.233)))*43758.5453);'+
  'diffuseColor.rgb=mix(diffuseColor.rgb,vec3(0.13,0.13,0.135)*(0.94+0.12*h1),clamp(uWear*1.1,0.0,0.62));'+
  'float rows=smoothstep(0.55,0.95,sin(an*260.0+sin(zz*40.0)*2.0)*0.5+0.5)*smoothstep(0.3,0.7,fract(sin(dot(floor(vec2(an*60.0,zz*12.0))+uSeed,vec2(4.1,7.7)))*913.1));'+
@@ -3023,12 +3049,16 @@ const TYRE_WEAR_GLSL='if(uWear+uGrain+uMarb+uBlis>0.002){float rr=length(vTP.xy)
  'vec2 q=vec2(an*22.0,zz*36.0),c1=floor(q),f1=fract(q)-0.5;float hh=fract(sin(dot(c1+uSeed+3.1,vec2(12.9898,78.233)))*43758.5453);'+
  'if(hh<uMarb*0.5&&length(f1)<0.18+0.12*fract(hh*7.0))diffuseColor.rgb=mix(diffuseColor.rgb,vec3(0.07,0.07,0.075),0.9);'+
  'vec2 qb=vec2(an*30.0,zz*48.0),cb=floor(qb),fb=fract(qb)-0.5;float hb=fract(sin(dot(cb+uSeed+9.7,vec2(39.3,11.1)))*24634.6345);'+
- 'if(hb<uBlis*0.35&&length(fb)<0.12+0.1*fract(hb*5.0))diffuseColor.rgb*=0.35;}}';
-function tyreDeform(m){const U={uDown:{value:new THREE.Vector2(0,-1)},uDefl:{value:0},uBulge:{value:0},uShear:{value:0},uFs:{value:new THREE.Vector2(0,-1)},uFsD:{value:0},uR:{value:TR},uDirt:{value:0},uDirtC:{value:new THREE.Color(.3,.24,.12)},uSeed:{value:Math.random()*50},uWear:{value:0},uGrain:{value:0},uMarb:{value:0},uBlis:{value:0}};m.userData.U=U;
+ 'if(hb<uBlis*0.35&&length(fb)<0.12+0.1*fract(hb*5.0))diffuseColor.rgb*=0.35;'+
+ /* v67: worn through to the carcass near the end of its life (pale cords showing, first on the shoulders), a hot tread looks dark and sticky, a cold one dull and dusty */
+ 'float sho=smoothstep(0.35,1.0,abs(zz)/max(0.05,uTW*0.5));float cord=smoothstep(0.72,0.98,uWear+0.14*sho)*step(0.45,fract(sin(dot(floor(vec2(an*90.0,zz*70.0))+uSeed,vec2(7.3,3.9)))*5113.7));'+
+ 'diffuseColor.rgb=mix(diffuseColor.rgb,vec3(0.36,0.34,0.31),cord*0.7);'+
+ 'if(uHot>0.0){diffuseColor.rgb*=1.0-0.38*uHot;diffuseColor.rgb+=vec3(0.035,0.02,0.045)*uHot*(0.5+0.5*sin(an*9.0+zz*30.0));}else{diffuseColor.rgb=mix(diffuseColor.rgb,vec3(0.2,0.2,0.21),-uHot*0.35);}}}';
+function tyreDeform(m){const U={uDown:{value:new THREE.Vector2(0,-1)},uDefl:{value:0},uBulge:{value:0},uShear:{value:0},uFs:{value:new THREE.Vector2(0,-1)},uFsD:{value:0},uR:{value:TR},uDirt:{value:0},uDirtC:{value:new THREE.Color(.3,.24,.12)},uSeed:{value:Math.random()*50},uWear:{value:0},uGrain:{value:0},uMarb:{value:0},uBlis:{value:0},uHot:{value:0},uTW:{value:.36}};m.userData.U=U;
  m.onBeforeCompile=sh=>{Object.assign(sh.uniforms,U);sh.vertexShader='uniform vec2 uDown;uniform float uDefl;uniform float uBulge;uniform float uShear;uniform vec2 uFs;uniform float uFsD;uniform float uR;varying vec3 vTP;\n'+sh.vertexShader.replace('#include <begin_vertex>',
   '#include <begin_vertex>\nvTP=position;\nfloat tD=dot(transformed.xy,uDown);float tC=uR-uDefl;if(tD>tC){transformed.xy-=uDown*(tD-tC);}float tB=smoothstep(tC-0.13,tC+0.01,tD);transformed.z*=1.0+uBulge*tB;transformed.z+=uShear*tB;float tF=dot(transformed.xy,uFs);float tF0=uR-uFsD;if(tF>tF0){transformed.xy-=uFs*(tF-tF0);}');
   /* clumps of grass, mud and gravel dust stuck on the tread: patches fixed to the rubber, so they turn with the wheel until they fly off */
-  sh.fragmentShader='uniform float uDirt;uniform vec3 uDirtC;uniform float uSeed;uniform float uWear;uniform float uGrain;uniform float uMarb;uniform float uBlis;uniform float uR;varying vec3 vTP;\n'+sh.fragmentShader.replace('#include <map_fragment>','#include <map_fragment>\n'+TYRE_WEAR_GLSL+'\nif(uDirt>0.01){float rr=length(vTP.xy);float an=atan(vTP.y,vTP.x);vec2 q=vec2(an*16.0,vTP.z*30.0);vec2 cl=floor(q);vec2 fq=fract(q)-0.5;float hh=fract(sin(dot(cl+uSeed,vec2(12.9898,78.233)))*43758.5453);float rad=0.25+0.3*fract(hh*7.13);float tread=smoothstep(0.30,0.34,rr);if(hh<uDirt*(0.45+0.55*tread)&&length(fq)<rad){float sh2=fract(hh*13.7);diffuseColor.rgb=mix(diffuseColor.rgb,uDirtC*(0.7+0.6*sh2),0.9);}}')};
+  sh.fragmentShader='uniform float uDirt;uniform vec3 uDirtC;uniform float uSeed;uniform float uWear;uniform float uGrain;uniform float uMarb;uniform float uBlis;uniform float uHot;uniform float uTW;uniform float uR;varying vec3 vTP;\n'+sh.fragmentShader.replace('#include <map_fragment>','#include <map_fragment>\n'+TYRE_WEAR_GLSL+'\nif(uDirt>0.01){float rr=length(vTP.xy);float an=atan(vTP.y,vTP.x);vec2 q=vec2(an*16.0,vTP.z*30.0);vec2 cl=floor(q);vec2 fq=fract(q)-0.5;float hh=fract(sin(dot(cl+uSeed,vec2(12.9898,78.233)))*43758.5453);float rad=0.25+0.3*fract(hh*7.13);float tread=smoothstep(0.30,0.34,rr);if(hh<uDirt*(0.45+0.55*tread)&&length(fq)<rad){float sh2=fract(hh*13.7);diffuseColor.rgb=mix(diffuseColor.rgb,uDirtC*(0.7+0.6*sh2),0.9);}}')};
  m.customProgramCacheKey=()=>'tyreDeform'}
 function tyreGeo(w){if(wheelGeo[w])return wheelGeo[w];const r0=.236,R=TR,hw=w/2,pts=[];
  const side=[[r0,.86],[.25,.95],[.27,1.0],[.3,1.02],[.325,1.0],[.343,.94],[.354,.84]];
@@ -3524,29 +3554,34 @@ const MPOST=(()=>{const out=[];for(let i=20;i<N;i+=70){if(relOf(i)<ZL+6)continue
 const NPEOPLE=NT_*CREW_N+NT_*ENG_N+MPOST.length;
 const HUM=(()=>{
  /* limbs are lathed from radius profiles (muscle shape), pivot at the top joint, hanging down -y */
- const limb=(rad,len,back)=>{const pts=[new THREE.Vector2(0,0)];rad.forEach((r,i)=>pts.push(new THREE.Vector2(r,-i/(rad.length-1)*len)));pts.push(new THREE.Vector2(0,-len));
-  const g=geoN(new THREE.LatheGeometry(pts,7)),P=g.attributes.position;if(back)for(let i=0;i<P.count;i++){const t=-P.getY(i)/len,b=Math.max(0,Math.sin(Math.min(1,t/.55)*Math.PI))*back;if(P.getX(i)<0)P.setX(i,P.getX(i)-b)}
-  g.computeVertexNormals();return merge([g,place(new THREE.SphereGeometry(rad[rad.length-1]*1.03,8,5),0,-len,0)])};
- const vloft=(secs,seg)=>place(loft(secs,seg||14),0,0,0,0,0,Math.PI/2);
- const torso=vloft([[0,.15,-.1,.095,2.4],[.08,.145,-.105,.095,2.4],[.2,.158,-.112,.1,2.5],[.32,.172,-.12,.105,2.6],[.42,.188,-.118,.105,2.8],[.49,.198,-.11,.1,3],[.54,.16,-.08,.08,2.6],[.58,.07,-.05,.05,2]]);
- const G={pel:merge([vloft([[-.12,.13,-.09,.1,2.6],[-.06,.165,-.1,.11,2.6],[0,.165,-.1,.1,2.6],[.06,.15,-.1,.095,2.4]])]),
-  tor:merge([torso,place(new THREE.CylinderGeometry(.05,.056,.11,10),0,.62,0),place(new THREE.SphereGeometry(.064,7,5),0,.47,.2,0,0,0,1,.85,1),place(new THREE.SphereGeometry(.064,7,5),0,.47,-.2,0,0,0,1,.85,1)]),
-  ttr:merge([vloft([[.43,.2,-.134,.108,2.8],[.5,.203,-.112,.103,3],[.545,.163,-.083,.083,2.6]]),box(.12,.38,.02,.0,.21,.177),box(.12,.38,.02,0,.21,-.177),vloft([[.0,.153,-.103,.098,2.4],[.045,.151,-.104,.097,2.4]]),
-   place(new THREE.TorusGeometry(.058,.012,4,10),0,.6,0,Math.PI/2),box(.02,.05,.3,.105,.02,0),box(.2,.025,.06,.06,.36,.0)]),
-  hel:merge([place(new THREE.SphereGeometry(.142,14,10),0,.15,0,0,0,0,1.06,1.08,.93),place(new THREE.SphereGeometry(.075,10,6),.075,.045,0,0,0,0,1,.72,1.45),place(new THREE.CylinderGeometry(.15,.152,.035,14),0,.035,0,0,0,0,.98,1,.9),
-   place(new THREE.BoxGeometry(.05,.012,.2),.14,.225,0,0,0,-.35)]),
+ /* smooth shading: one normal per place (the suit is cloth, not facets) */
+ const smoothN=g=>{g=geoN(g);const P=g.attributes.position,n=P.count,M=new Map(),id=new Int32Array(n),acc=[];for(let i=0;i<n;i++){const k=Math.round(P.getX(i)*2e3)+','+Math.round(P.getY(i)*2e3)+','+Math.round(P.getZ(i)*2e3);let j=M.get(k);if(j===undefined){j=acc.length/3;M.set(k,j);acc.push(0,0,0)}id[i]=j}
+  const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();for(let i=0;i<n;i+=3){a.fromBufferAttribute(P,i);b.fromBufferAttribute(P,i+1);c.fromBufferAttribute(P,i+2);b.sub(a);c.sub(a);b.cross(c);for(let k=0;k<3;k++){const j=id[i+k]*3;acc[j]+=b.x;acc[j+1]+=b.y;acc[j+2]+=b.z}}
+  const Nn=new Float32Array(n*3);for(let i=0;i<n;i++){const j=id[i]*3,l=Math.hypot(acc[j],acc[j+1],acc[j+2])||1;Nn[i*3]=acc[j]/l;Nn[i*3+1]=acc[j+1]/l;Nn[i*3+2]=acc[j+2]/l}g.setAttribute('normal',new THREE.BufferAttribute(Nn,3));return g};
+ /* limbs are lathed from radius profiles (muscle shape under overalls), rounded at both joints, pivot at the top joint, hanging down -y */
+ const limb=(rad,len,back)=>{const pts=[],r0=rad[0],rl=rad[rad.length-1];for(let a=0;a<2;a++){const t=a/2*Math.PI/2;pts.push(new THREE.Vector2(Math.max(1e-4,Math.sin(t)*r0),Math.cos(t)*r0*.85))}
+  rad.forEach((r,i)=>pts.push(new THREE.Vector2(r,-i/(rad.length-1)*len)));for(let a=1;a<=2;a++){const t=a/2*Math.PI/2;pts.push(new THREE.Vector2(Math.max(1e-4,Math.cos(t)*rl),-len-Math.sin(t)*rl*.85))}
+  const g=geoN(new THREE.LatheGeometry(pts,8)),P=g.attributes.position;if(back)for(let i=0;i<P.count;i++){const t=-P.getY(i)/len,b=Math.max(0,Math.sin(Math.min(1,Math.max(0,t)/.55)*Math.PI))*back;if(P.getX(i)<0)P.setX(i,P.getX(i)-b)}
+  return smoothN(g)};
+ const vloft=(secs,seg)=>smoothN(place(loft(secs,seg||12),0,0,0,0,0,Math.PI/2));
+ const torso=vloft([[0,.166,-.108,.103,2.4],[.08,.164,-.11,.104,2.4],[.2,.168,-.114,.104,2.5],[.32,.172,-.12,.105,2.6],[.42,.188,-.118,.105,2.8],[.49,.198,-.11,.1,3],[.54,.16,-.08,.08,2.6],[.58,.07,-.05,.05,2]]);
+ const G={pel:merge([vloft([[-.13,.12,-.085,.09,2.6],[-.07,.16,-.102,.1,2.6],[0,.168,-.108,.104,2.5],[.06,.166,-.108,.103,2.4]])]),
+  tor:merge([torso,place(new THREE.CylinderGeometry(.05,.056,.11,10),0,.62,0),place(new THREE.SphereGeometry(.07,8,6),0,.475,.195,0,0,0,1,.8,1),place(new THREE.SphereGeometry(.07,8,6),0,.475,-.195,0,0,0,1,.8,1)]),
+  ttr:merge([vloft([[.43,.2,-.134,.108,2.8],[.5,.203,-.112,.103,3],[.545,.163,-.083,.083,2.6]]),vloft([[.005,.172,-.113,.108,2.4],[.045,.171,-.114,.108,2.4]]),
+   place(new THREE.TorusGeometry(.058,.014,5,10),0,.6,0,Math.PI/2)]),
+  hel:merge([place(new THREE.SphereGeometry(.142,14,9),0,.15,0,0,0,0,1.06,1.08,.93),place(new THREE.SphereGeometry(.1,10,6),.04,.068,0,0,0,0,1.32,.82,1.2),place(new THREE.SphereGeometry(.09,8,4),-.05,.06,0,0,0,0,1.1,.7,1.2)]),
   hst:merge([place(new THREE.SphereGeometry(.1445,4,8,-.16,.32,0,Math.PI*.62),0,.15,0,0,0,0,1.06,1.08,.93)]),
   vis:place(new THREE.SphereGeometry(.146,10,4,-1.05,2.1,1.25,.48),0,.15,0,0,Math.PI/2,0,1.06,1.08,.93),
   head:merge([place(new THREE.SphereGeometry(.098,10,8),.0,.13,0,0,0,0,1.02,1.2,.88),place(new THREE.SphereGeometry(.045,8,5),.055,.05,0,0,0,0,1,.8,1.5),place(new THREE.ConeGeometry(.018,.04,6),.105,.12,0,0,0,-Math.PI/2),
    place(new THREE.SphereGeometry(.02,6,5),0,.13,.088),place(new THREE.SphereGeometry(.02,6,5),0,.13,-.088),place(new THREE.CylinderGeometry(.045,.05,.08,10),0,.03,0)]),
   cap:merge([place(new THREE.SphereGeometry(.103,10,5,0,Math.PI*2,0,Math.PI/2),0,.17,0,0,0,0,1.02,.9,.92),place(new THREE.CylinderGeometry(.08,.08,.01,8,1,false,-Math.PI/2,Math.PI),.07,.17,0,0,0,0,1.2,1,1),
    place(new THREE.CylinderGeometry(.035,.035,.03,10),0,.12,.095,Math.PI/2),place(new THREE.CylinderGeometry(.035,.035,.03,10),0,.12,-.095,Math.PI/2)]),
-  uar:limb([.056,.063,.064,.058,.051,.046],.29),uat:merge([box(.018,.26,.026,0,-.13,.058),box(.018,.26,.026,0,-.13,-.058)]),
-  far:limb([.047,.053,.05,.043,.037,.033],.26),
-  hnd:merge([place(new THREE.SphereGeometry(.045,7,5),0,-.045,0,0,0,0,.95,1.15,.55),place(new THREE.BoxGeometry(.07,.05,.04),.0,-.095,0),place(new THREE.CylinderGeometry(.014,.012,.05,6),.035,-.06,.025,0,0,.6)]),
-  thi:limb([.083,.092,.09,.083,.072,.06,.055],.44),tht:merge([box(.026,.4,.02,0,-.21,.088),box(.026,.4,.02,0,-.21,-.088)]),
-  shi:limb([.055,.06,.064,.06,.05,.041,.037],.43,.014),sht:merge([box(.022,.36,.02,0,-.19,.063),box(.022,.36,.02,0,-.19,-.063)]),
-  foo:place(loft([[-.07,.045,-.095,.0,2.6],[.0,.05,-.095,-.01,2.8],[.1,.052,-.095,-.035,2.8],[.17,.045,-.095,-.05,2.4],[.205,.03,-.092,-.065,2]],10),0,0,0)};
+  uar:limb([.058,.065,.066,.06,.054,.05],.29),uat:place(new THREE.SphereGeometry(.068,8,3,0,Math.PI*2,Math.PI*.38,Math.PI*.24),0,-.2,0,0,0,0,1,1.6,1),
+  far:limb([.05,.055,.052,.046,.04,.037],.26),
+  hnd:merge([place(new THREE.SphereGeometry(.047,7,5),0,-.05,0,0,0,0,.9,1.25,.6),place(new THREE.SphereGeometry(.036,6,4),.0,-.1,0,0,0,0,.95,1.1,.55),place(new THREE.CylinderGeometry(.014,.012,.05,6),.035,-.06,.025,0,0,.6)]),
+  thi:limb([.086,.094,.092,.085,.075,.066,.062],.44),tht:place(new THREE.SphereGeometry(.01,4,3),0,-.2,0),
+  shi:limb([.06,.064,.066,.062,.054,.047,.044],.43,.014),sht:place(new THREE.SphereGeometry(.058,6,5,-Math.PI*.5,Math.PI),.03,-.02,0,0,Math.PI/2,0,1.15,1.35,.75),
+  foo:smoothN(place(loft([[-.07,.045,-.095,.0,2.6],[.0,.05,-.095,-.01,2.8],[.1,.052,-.095,-.035,2.8],[.17,.045,-.095,-.05,2.4],[.205,.03,-.092,-.065,2]],12),0,0,0))};
  const n=NPEOPLE,mk=(g,mat,cnt)=>{const m=new THREE.InstancedMesh(g,mat,cnt);m.castShadow=HIQ;m.frustumCulled=false;m.userData.mul=cnt/n;scene.add(m);return m};
  const suit=new THREE.MeshLambertMaterial({color:0xffffff}),trim=new THREE.MeshLambertMaterial({color:0xffffff}),hel=new THREE.MeshPhongMaterial({color:0xffffff,shininess:90,specular:0x777777,envMap:ENV,reflectivity:.15}),
   vis=new THREE.MeshPhongMaterial({color:0x111318,shininess:140,specular:0xffffff,envMap:ENV,reflectivity:.6}),glove=new THREE.MeshLambertMaterial({color:0x17181b}),boot=new THREE.MeshPhongMaterial({color:0x151517,shininess:40}),
@@ -3763,9 +3798,17 @@ const ASIS=(()=>{if(HEADLESS||!CFG.scn||!AS)return null;const dv0=new DataView(C
    const mat=mats[c.m],me=new THREE.Mesh(g,mat),s=1/c.q;me.scale.set(s,s,s);me.rotation.x=-Math.PI/2;me.position.set(c.o[0],c.o[2],-c.o[1]);
    me.receiveShadow=HIQ&&!!RECV[mat.userData.role];me.castShadow=HIQ&&!!CAST[mat.userData.role];me.userData.noBatch=true;
    me.matrixAutoUpdate=false;me.updateMatrix();grp.add(me)}
+  /* what can hide a car from a camera: a coarse map (3 m cells) of how high the model's buildings, stands and trees reach */
+  const OG=new Map(),OC=3,okey=(x,y)=>(Math.floor(x/OC)+20000)*65536+(Math.floor(y/OC)+20000);
+  for(const c of hd.chunks){const r=hd.mats[c.m].role;if(r!=='building'&&r!=='tree')continue;const P=new Int16Array(b,base+c.p,c.n*3),I=new Uint16Array(b,base+c.x,c.i),q=1/c.q,ox=c.o[0],oy=c.o[1],oz=c.o[2];
+   for(let k=0;k<I.length;k+=3){const a=I[k]*3,d=I[k+1]*3,e=I[k+2]*3,ax=P[a]*q,ay=P[a+1]*q,az=P[a+2]*q,bx=P[d]*q,by=P[d+1]*q,bz=P[d+2]*q,cx=P[e]*q,cy=P[e+1]*q,cz=P[e+2]*q;
+    const L=Math.max(Math.abs(bx-ax)+Math.abs(by-ay),Math.abs(cx-ax)+Math.abs(cy-ay),Math.abs(cx-bx)+Math.abs(cy-by)),n=Math.min(12,Math.max(1,Math.ceil(L/OC)));
+    for(let u=0;u<=n;u++)for(let v=0;v<=n-u;v++){const fu=u/n,fv=v/n,fw=1-fu-fv,x=ox+ax*fw+bx*fu+cx*fv,y=oy+ay*fw+by*fu+cy*fv,z=oz+az*fw+bz*fu+cz*fv,kk=okey(x,y),o=OG.get(kk);if(o===undefined||z>o)OG.set(kk,z)}}}
+  /* distance from the target towards the camera at which the view is first blocked (-1: clear); world east/north/height */
+  const los=(tx,ty,tz,cx,cy,cz)=>{const dx=cx-tx,dy=cy-ty,dz=cz-tz,d=Math.hypot(dx,dy,dz);if(d<6)return -1;for(let s=4;s<d-1;s+=2){const f=s/d,h=OG.get(okey(tx+dx*f,ty+dy*f));if(h!==undefined&&h>tz+dz*f+.3)return s}return -1};
   /* the generated road, ground, walls, stands, trees and pit building are not drawn: what you see is the model */
   for(const o of scene.children.slice())if(o.userData.gen==='world'||o.userData.gen==='pits'){scene.remove(o);o.traverse(m=>{if(m.geometry&&m.geometry.dispose)m.geometry.dispose()})}
-  grp.userData.gen='asis';scene.add(grp);return{grp,tris,code:hd.code}}
+  OCC.length=0;grp.userData.gen='asis';scene.add(grp);return{grp,tris,code:hd.code,los}}
  catch(e){console.warn('as-is circuit file unusable',e);return null}})();
 
 /* AUDIO_GUARD: never hand a non-finite number to the audio graph (it throws and kills the sound) */
@@ -4445,7 +4488,7 @@ function humanInput(c){const assist=CFG.assist||'none';
  /* BOX: the player asked to pit. The entry window is the same as the AI's (the last stretch before the pit entry); from there the
     car is driven down the pit lane, serviced and released automatically, then handed back. (With steering assist this already
     happened inside aiDrive; without assists nothing ever started the stop) */
- if(c.pitReq&&!c.pitPh&&R.phase!=='formation'&&R.phase!=='grid'){const rel=relOf(c.idx),lt=c.lt;if(rel>=N-40&&(rel<N-14||lt>HW-2.5)&&lt>-(HW+2)){c.pitPh=1;const mate=R.cars.find(o=>o!==c&&o.team===c.team&&(o.pitPh===1||o.pitPh===2)&&!o.park);c.stopRel=RB(c.team)-(mate?1.95:0)}}
+ if(c.pitReq&&!c.pitPh&&(c.pitStart||(R.phase!=='formation'&&R.phase!=='grid'))){const rel=relOf(c.idx),lt=c.lt;if(rel>=N-40&&(rel<N-14||lt>HW-2.5)&&lt>-(HW+2)){c.pitPh=1;const mate=R.cars.find(o=>o!==c&&o.team===c.team&&(o.pitPh===1||o.pitPh===2)&&!o.park);c.stopRel=RB(c.team)-(mate?1.95:0)}}
  /* steering: an analog source (slider, tilt) when there is one, else the buttons, eased in at a rate set by the sensitivity */
  let man;if(HIN.sa!=null&&!HIN.l&&!HIN.r)man=HIN.sa;else{const k=CTL.sSens||1,tgt=(HIN.l-HIN.r)*Math.min(1,.4+.6*k),rate=(tgt===0?10:7)*k;c._sb=(c._sb||0)+cl(tgt-(c._sb||0),-rate*DT,rate*DT);man=c._sb}
  /* counter-steer assist: once the rear steps out past ~3 degrees, opposite lock is blended in as fast as the slide grows (a thumb on a
@@ -4469,12 +4512,15 @@ function humanInput(c){const assist=CFG.assist||'none';
  const v=Math.hypot(c.vx,c.vy);c.hrevT=brk>.5&&thr<.1&&(v<.6||c.vx<0)?(c.hrevT||0)+DT:0;if(c.hrevT>.6&&(R.phase==='run'||R.phase==='formation')){inp.b=0;inp.g=0;inp.rev=.7}
  return inp}
 function otUpdate(c,pi){if(R.type!=='R')return;
- for(const z of OTZ){if(W(c.idx-z.det)<20&&W(pi-z.det)>N-20){const within=R.phase==='run'&&!R.slow&&c.lapsDone>=2&&c.ahead&&c.ahead.gap!=null&&c.ahead.gap<1&&!c.pitPh;c.otOK=within&&c.ers>ERS_CAP*.3;
-   if(within&&c.human&&!c.ai)msg(c.otOK?'OVERTAKE MODE AVAILABLE – '+c.ahead.gap.toFixed(2)+'s behind '+c.ahead.c.code:'Within a second but battery too low for overtake mode ('+Math.round(c.ers/ERS_CAP*100)+'%)','radio',c)}
-  }
- /* 2026 overtake (manual override) mode: within a second at a detection line, the chasing car may use an extra 0.5 MJ at full
-    power up to 337 km/h until the next detection line (all the straights and corner exits in between, not just one zone) */
- for(const z of OTZ)if(W(c.idx-z.det)<20&&W(pi-z.det)>N-20){c.otE=c.otOK?5e5:0;break}
+ /* overtake mode: a car within one second of the car ahead at a detection line gets it for the whole of the next lap (every straight and
+    corner exit until it comes back to that line), with a fresh 0.5 MJ of extra energy at each detection line on the way */
+ for(const z of OTZ){if(W(c.idx-z.det)<20&&W(pi-z.det)>N-20){const within=R.phase==='run'&&!R.slow&&c.lapsDone>=2&&c.ahead&&c.ahead.gap!=null&&c.ahead.gap<1&&!c.pitPh;
+   if(within){const had=c.otOK;c.otOK=c.ers>ERS_CAP*.12;if(c.otOK){c.otUntil=c.prog+LEN;c.otE=5e5}
+    if(c.human&&!c.ai&&!(had&&c.otOK))msg(c.otOK?'OVERTAKE MODE FOR THE WHOLE LAP – '+c.ahead.gap.toFixed(2)+'s behind '+c.ahead.c.code:'Within a second but battery too low for overtake mode ('+Math.round(c.ers/ERS_CAP*100)+'%)','radio',c)}
+   else if(c.otOK&&c.otUntil!=null&&c.prog<c.otUntil-10&&!R.slow&&!c.pitPh)c.otE=Math.max(c.otE||0,5e5);
+   else{c.otOK=false;c.otE=0}
+   break}}
+ if(c.otOK&&(c.otUntil==null||c.prog>=c.otUntil||R.slow||c.pitPh)){c.otOK=false;c.otE=0}
  if(c.otOK&&(c.otE||0)>0)c.ot=(c.ai?true:!!HIN.ot)&&c.ers>ERS_CAP*.06&&!R.slow&&!c.pitPh;else{c.ot=false;if(!((c.otE||0)>0))c.otOK=false}}
 /* slipstream: a car close behind and in line gets less drag (and less front downforce in the dirty air) */
 /* slipstream (less drag, long range, needs to be in line) and dirty air (wide wake behind a car: lost front downforce in corners) */
@@ -4702,7 +4748,10 @@ const SET={units:'kmh',fps:false,tower:true,refl:HIQ,rubber:true};
 const TVCAMS=(()=>{const out=[];for(let i=0;i<N;i+=(STREET?30:45)){const sd=relOf(i)<ZL+30?-1:K[i]>0?-1:1,w=(sd>0?WLd[i]:WRd[i])+(STREET?.8:10);out.push({i,x:T[i][0]+NX[i]*sd*w,y:T[i][1]+NY[i]*sd*w,z:HZ[i]+(STREET?6+rnd()*3:13+rnd()*5)})}return out})();
 /* keep the camera out of buildings: if a building sits between the car and the camera, move the camera in front of it */
 const OCC_RC=new THREE.Raycaster(),_oc1=new THREE.Vector3(),_oc2=new THREE.Vector3();
-function unOcclude(tx,ty,tz){if(!OCC.length)return;_oc1.set(tx,ty,tz);_oc2.copy(cam.position).sub(_oc1);const d=_oc2.length();if(d<1)return;_oc2.divideScalar(d);OCC_RC.set(_oc1,_oc2);OCC_RC.far=d;const h=OCC_RC.intersectObjects(OCC,false);if(h.length){const k=Math.max(1.2,h[0].distance-.8);cam.position.copy(_oc1).addScaledVector(_oc2,k);if(cam.position.y<ty+1.2)cam.position.y=ty+1.2;cam.lookAt(tx,ty,tz);return true}return false}
+function unOcclude(tx,ty,tz){/* a circuit drawn from a model: trees, stands and buildings between the camera and the car - the camera comes forward to a clear view */
+ if(typeof ASIS!=='undefined'&&ASIS&&ASIS.los){const s=ASIS.los(tx,-tz,ty,cam.position.x,-cam.position.z,cam.position.y);if(s<0)return false;
+  _oc1.set(tx,ty,tz);_oc2.copy(cam.position).sub(_oc1).normalize();cam.position.copy(_oc1).addScaledVector(_oc2,Math.max(3,s-1.5));if(cam.position.y<ty+1.6)cam.position.y=ty+1.6;cam.lookAt(tx,ty,tz);return true}
+ if(!OCC.length)return;_oc1.set(tx,ty,tz);_oc2.copy(cam.position).sub(_oc1);const d=_oc2.length();if(d<1)return;_oc2.divideScalar(d);OCC_RC.set(_oc1,_oc2);OCC_RC.far=d;const h=OCC_RC.intersectObjects(OCC,false);if(h.length){const k=Math.max(1.2,h[0].distance-.8);cam.position.copy(_oc1).addScaledVector(_oc2,k);if(cam.position.y<ty+1.2)cam.position.y=ty+1.2;cam.lookAt(tx,ty,tz);return true}return false}
 /* smooth ground height anywhere near the track: Catmull-Rom along the centreline plus banking across it */
 const gAt=roadH;
 const hAt=c=>gAt(c.x,c.y,c.idx);
@@ -4777,7 +4826,7 @@ function updCar(c,v,dt){const g=v.g;SMOKE.owner=c.k;g.visible=!c.gone&&!c._lcHid
     w.blis=Math.min(1,(w.blis||0)+Math.max(0,tq-(cp.opt+cp.wd*.6))*dt*.003);U.uWear.value=wr;U.uBlis.value=w.blis;
     U.uGrain.value=sm(cl((wr-.03)/.22,0,1))*(1-.6*sm(cl((wr-.55)/.35,0,1)))*(c.cmp==='S'?1:c.cmp==='M'?.7:.45);
     U.uMarb.value=c.pk&&c.pk.r?Math.min(1,(c.pk.r[a2]||0)*1.2):0;
-    const gl=1-cl(wr*3,0,1);w.tm.shininess=5+23*gl;w.tm.specular.setScalar(.06+.16*gl)}
+    /* v67: temperature shows on the tread */const hot=cl((tq-(cp.opt+cp.wd*.35))/(cp.wd*.9),0,1)-cl(((cp.opt-cp.wd*.6)-tq)/(cp.wd*1.2),0,1);U.uHot.value+=(hot-U.uHot.value)*Math.min(1,dt*2);U.uTW.value=w.tw||.36;const gl=cl(1-cl(wr*3,0,1)+.6*Math.max(0,U.uHot.value),0,1.3);w.tm.shininess=5+23*gl;w.tm.specular.setScalar(.06+.16*gl)}
     {const a2=i<2?0:1,pk=c.pk,dd=pk?Math.min(1,pk.d.length>2?pk.d[i]:pk.d[a2]):0;U.uDirt.value=dd*.75;if(dd>.01){const gr=pk.k?pk.k[i]:(c.dirtKind||0);U.uDirtC.value.setRGB(.3-.08*gr,.24+.16*gr,.12-.02*gr)}}U.uDown.value.set(-Math.sin(ang),-Math.cos(ang));U.uDefl.value+=(defl+flap*.012*Math.sin(ang*3+simT*6)-U.uDefl.value)*Math.min(1,dt*25);U.uBulge.value=Math.min(.45,defl*3.2+(1-pr)*.25);
     /* lateral load drags the contact patch across */U.uShear.value=cl(sd*(c.ay||0)/40,-1,1)*Math.min(1,ld/5000)*(.025+.05*(1-pr));
     const fl0=i<2?(c.flat[i]||0):0;if(fl0>.05&&w.fsAng!=null){const th=-w.fsAng;U.uFs.value.set(Math.sin(th),-Math.cos(th));U.uFsD.value=fl0*.022}else U.uFsD.value=0}
@@ -4976,7 +5025,10 @@ function camUpdate(dt){if(CAM.mode==='director')director(dt);
  else if(mode==='side'){if(v3.model)onboard(v3,.05,.8,.74,30,.25,.62);else onboard(v3,.2,.66,.62,30,.3,.2);fov=76}
  else if(mode==='rear'){onboard(v3,-.42,1.3,0,-30,.7,0);fov=70}
  else if(mode==='tv'){let best=CAM.tvI,bd=1e9;TVCAMS.forEach((t,i)=>{const d=W(t.i-c.idx),dd=Math.min(d,N-d),behind=W(c.idx-t.i)<40;if((d<70||behind)&&dd<bd){bd=dd;best=i}});
-  if(best!==CAM.tvI&&(CAM.tvI<0||Math.hypot(TVCAMS[CAM.tvI].x-c.x,TVCAMS[CAM.tvI].y-c.y)>170))CAM.tvI=best;const t=TVCAMS[CAM.tvI];
+  if(best!==CAM.tvI&&(CAM.tvI<0||Math.hypot(TVCAMS[CAM.tvI].x-c.x,TVCAMS[CAM.tvI].y-c.y)>170))CAM.tvI=best;
+  /* v67: trees, stands or a building between this camera and the car for a moment: cut to the nearest camera with a clear view */
+  if(typeof ASIS!=='undefined'&&ASIS&&ASIS.los){const hz=hAt(c)+.8,blk=q=>ASIS.los(c.x,c.y,hz,q.x,q.y,q.z)>=0;if(blk(TVCAMS[CAM.tvI])){CAM.tvB=(CAM.tvB||0)+1;if(CAM.tvB>14){let bi=-1,bd2=1e9;TVCAMS.forEach((q,i)=>{const d=Math.hypot(q.x-c.x,q.y-c.y);if(i!==CAM.tvI&&d<240&&d>25&&d<bd2&&!blk(q)){bd2=d;bi=i}});if(bi>=0){CAM.tvI=bi;CAM.tvB=0;CAM.tvCut=(CAM.tvCut||0)+1}}}else CAM.tvB=0}
+  const t=TVCAMS[CAM.tvI];
   cam.position.set(t.x,t.z,-t.y);cam.lookAt(c.x,z+.8,-c.y);fov=cl(1800/Math.max(8,Math.hypot(t.x-c.x,t.y-c.y)),8,60)}
  else if(mode==='debug'){cam.position.set(...CAM.dbg.p);cam.lookAt(...CAM.dbg.l);fov=CAM.dbg.fov||50}
  else if(mode==='flyby'){const D=CAM.dir;if(!D.fly||D.fly.car!==c||W(c.idx-D.fly.i)<N/2&&W(c.idx-D.fly.i)>14){const i=W(c.idx+Math.max(14,Math.round(sp*1.6/DS))),sd=(RO[i]>0?-1:1),lat=sd*Math.min(HW+(STREET?.9:2.6),(sd>0?WLd[i]:WRd[i])-.5);
@@ -4999,7 +5051,10 @@ function camUpdate(dt){if(CAM.mode==='director')director(dt);
  const inside=mode==='cockpit';CAR3D.forEach((v,i)=>{const me=i===c.k,show=!(me&&inside);v.hm.visible=show;if(v.vs)v.vs.visible=show;v.suitM.visible=show||!!v.model;
   const live=me&&(ONBOARD[mode]||mode==='chase'||mode==='free');v.mg.material=live?MIRROR_LIVE:MIRROR_DEAD;v.scr.material=me&&(ONBOARD[mode]||mode==='free')?SWSCR.mat:SWSCR.stat});
  CAM.live=mode;
- {const D=SKYU.uSun.value;sun.position.set(c.x+D.x*263.06,z+D.y*263.06,-c.y+D.z*263.06)}sun.target.position.set(c.x,z,-c.y);SKYM.position.set(cam.position.x,0,cam.position.z)}
+ /* v67: the shadow box follows the car in whole shadow-map texels (moving it by fractions made every shadow edge shimmer and crawl) */
+ {const D=SKYU.uSun.value;let tx=c.x,ty=z,tz=-c.y;const dl=Math.hypot(D.x,D.y,D.z)||1,zx=D.x/dl,zy=D.y/dl,zz=D.z/dl;let rx=zz,rz=-zx;const rl=Math.hypot(rx,rz);
+  if(rl>1e-4&&sun.castShadow){rx/=rl;rz/=rl;const ux=zy*rz,uy=zz*rx-zx*rz,uz=-zy*rx,ts=(sun.shadow.camera.right-sun.shadow.camera.left)/sun.shadow.mapSize.x,a=tx*rx+tz*rz,b=tx*ux+ty*uy+tz*uz,da=Math.round(a/ts)*ts-a,db=Math.round(b/ts)*ts-b;tx+=rx*da+ux*db;ty+=uy*db;tz+=rz*da+uz*db}
+  sun.position.set(tx+D.x*263.06,ty+D.y*263.06,tz+D.z*263.06);sun.target.position.set(tx,ty,tz)}SKYM.position.set(cam.position.x,0,cam.position.z)}
 /* ---------- input: touch-safe buttons ---------- */
 /* a tap is a short press that did not move or scroll: dragging a list to scroll never fires the button under the finger */
 function ersCycle(){if(CFG.watch||!PLAYER)return;PLAYER.ersMode=((PLAYER.ersMode||0)+1)%3;msg(['ERS off: harvesting, no deployment.','ERS balanced deployment.','ERS full deployment.'][PLAYER.ersMode],'radio',PLAYER)}
@@ -5047,7 +5102,7 @@ function settingsHTML(){const b=(k,t)=>`<button data-k="${k}">${t}</button>`,sec
   h+=sec('Car set-up')+`<div class="srow sdesc" style="color:${lk==='parc'?'#ffb000':'#9fd8ff'}">${lk==='parc'?'Parc fermé: the set-up is locked from qualifying on, as in F1. Brake bias and diff can still be changed from the steering wheel (also the on-screen BB / DIFF buttons), and the front wing angle at a pit stop.':lk==='stop'?'On track: changes are fitted by your mechanics at your next pit stop (press BOX). In the garage they are fitted straight away.':'In the garage: changes are fitted straight away. Brake bias and diff can also be changed on track.'}</div>`;
   if(lk==='parc')h+=`<div class="srow"><label>Front wing at next stop<b id="fwn">${PLAYER.fwNext>0?'+':''}${PLAYER.fwNext||0} click${Math.abs(PLAYER.fwNext||0)===1?'':'s'}</b></label><div style="display:flex;gap:6px"><button data-k="fw_m" style="flex:1">− less wing</button><button data-k="fw_p" style="flex:1">+ more wing</button></div><div class="sdesc">More front wing: sharper turn-in and less understeer, a touch more drag. Fitted at your next stop.</div></div>`;
   for(const k of ['w','b','r','s','af','ar','c','k','a','x','bb','d','g']){const live=k==='bb'||k==='x',off=lk==='parc'&&!live,pd=!live&&lk==='stop'&&pend[k]!=null,v=pd?pend[k]:(su[k]||0),pct=Math.round(50+v*50);h+=`<div class="srow"${off?' style="opacity:.45"':''}><label>${lab[k][0]}${live?' <span style="color:#30d158;font-size:9px">LIVE</span>':''}<b id="sv_${k}">${pct}%${pd?' → next stop':''}</b></label><input type="range" min="0" max="100" step="5" value="${pct}" data-su="${k}"${off?' disabled':''}><div class="ends"><span>${lab[k][1]}</span><span>${lab[k][2]}</span></div><div class="sdesc">${SU_DESC[k]||""}</div></div>`}}
- h+=sec('Session · game v66')+(R.type==='R'&&!RPL.on&&!LC.on&&HL.clips.length+HL.pend.length?b('hl','🎬 Race highlights ('+(HL.clips.length+HL.pend.length)+' moments so far)'):'')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
+ h+=sec('Session · game v67')+(R.type==='R'&&!RPL.on&&!LC.on&&HL.clips.length+HL.pend.length?b('hl','🎬 Race highlights ('+(HL.clips.length+HL.pend.length)+' moments so far)'):'')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
 function settingsAct(k){{const ca=ctlAct(k);if(ca==='closed')return;if(ca){$('sheet').innerHTML=settingsHTML();return}}if(k==='look'){lookApply(!LOOK.on);try{localStorage.setItem('glgp_look',LOOK.on?'enhanced':'classic')}catch(e){}}if(k==='shadows'){const on=!renderer.shadowMap.enabled;renderer.shadowMap.enabled=on;sun.castShadow=on;scene.traverse(o=>{if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true)}})}
  if(k==='res'){/* Auto -> 100% -> 85% -> 67% -> 50% -> Auto; a fixed choice switches the automatic scaler off so it can't undo it, and is remembered */const steps=['auto',1,.85,.67,.5],i=steps.indexOf(PERF.auto?'auto':PERF.fix);resSet(steps[(i+1)%steps.length]);try{localStorage.setItem('glgp_res',String(PERF.auto?'auto':PERF.fix))}catch(e){}}
  if(k==='shake')CAM.shakeOn=!CAM.shakeOn;if(k==='mirror')SET.mirror=!SET.mirror;if(k==='refl')SET.refl=!SET.refl&&!!CUBECAM;if(k==='fps'){SET.fps=!SET.fps;$('fps').style.display=SET.fps?'block':'none'}
@@ -5180,7 +5235,8 @@ function renderAll(){rN++;const c=VIEW.car,v=CAR3D[c.k],mode=CAM.live,onb=!!ONBO
  if(mirNeed&&rN%4===1){v.g.updateMatrixWorld(true);_wv.set(.2,.86,0).applyMatrix4(v.tl.matrixWorld);_wv2.set(-40,.2,0).applyMatrix4(v.tl.matrixWorld);
   MIRROR_CAM.position.copy(_wv);MIRROR_CAM.lookAt(_wv2);v.g.visible=false;renderer.setRenderTarget(MIRROR_RT);renderer.render(scene,MIRROR_CAM);renderer.setRenderTarget(null);v.g.visible=!c.gone}
  if(onb&&(rN&3)===0)drawWheelScreen(c);
- if((rN&1)===0)renderer.shadowMap.needsUpdate=true;renderer.render(scene,cam);
+ /* v67: shadows are redrawn every frame (every other frame left the shadow of a moving car a step behind it, flickering); only a phone that is already struggling drops to every other frame */
+ if(PERF.k>=.8||(rN&1)===0)renderer.shadowMap.needsUpdate=true;renderer.render(scene,cam);
 }
 for(const c of cars)c.ev2=c.ev,c.ev=(t,a,b)=>{c.ev2(t,a,b);if(t==='hit'&&!HEADLESS)sfx.hit(a,c.x,c.y,VIEW.car);if(t==='stop'&&!HEADLESS&&Math.hypot(c.x-VIEW.car.x,c.y-VIEW.car.y)<160)setTimeout(()=>sfx.pit(c.x,c.y,(HZ[c.idx]||0)+.4),300)};
 /* static batching: fixed scenery meshes that share a material are merged per 250 m cell into one mesh, so the GPU gets one draw call
@@ -5217,7 +5273,7 @@ return {ev:x=>eval(x)};
  const SCN_FILES={7:{url:'montreal-model.bin',txt:'montreal-model.txt',mb:9}};
  const real=p=>{const m=Math.floor(p/60);return m+':'+(p-60*m).toFixed(1).padStart(4,'0')};
  const grp=(lab,key,items)=>`<div class="grp"><label>${lab}</label><div class="opts">${items.map(([v,t,s])=>`<button data-key="${key}" data-v="${v}" class="${S[key]==v?'sel':''}">${t}${s?`<small>${s}</small>`:''}</button>`).join('')}</div></div>`;
- function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v66</b></div>`+
+ function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v67</b></div>`+
   grp('CIRCUIT','track',TRACKS.map((t,i)=>[i,t.name,t.km.toFixed(2)+' km · '+t.climb+' m elevation · real pole ≈ '+real(t.pole)]))+
   grp('WEEKEND','format',[['full','Full weekend','Practice → Q1/Q2/Q3 → Race'],['qr','Qualifying + race',''],['r','Race only','']])+
   grp('RACE LENGTH','laps',[[5,'5 laps'],[10,'10 laps'],[20,'20 laps'],[30,'30 laps'],['h','Half distance',Math.ceil(FULL(S.track)/2)+' laps'],['f','Full distance',FULL(S.track)+' laps · 305 km']])+
