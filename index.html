@@ -841,7 +841,7 @@ function step(c,dt,inp){if(c.rb){rbStep(c,dt);return}if(!c.isSC)massModel(c);els
    /* warm-up: cold rubber comes up a little quicker than before and blends smoothly into the working range (no step in the rate); above the working
      range the heating slows right down (a tyre that is a little hot stays usable for many laps), and hot rubber sheds its heat faster once the
      driver gives it a breather. Track temperature (sT) and cloud still set how fast it all happens */
-   const t0=c.tt[a],kCold=.62*cl((sT-6)/26,.55,1.25)*(1-.2*cloud),wb=sm((t0-(cp.opt-1.1*cp.wd))/(.7*cp.wd)),kHot=1.15*(1-.5*sm((t0-(cp.opt+.1*cp.wd))/(.95*cp.wd)));
+   const t0=c.tt[a],kCold=.75*cl((sT-6)/26,.55,1.25)*(1-.2*cloud)/* v69: cold rubber comes in a little quicker (a lap of hard work, not two) */,wb=sm((t0-(cp.opt-1.1*cp.wd))/(.7*cp.wd)),kHot=1.15*(1-.5*sm((t0-(cp.opt+.1*cp.wd))/(.95*cp.wd)));
    const k=d>0?kCold+(kHot-kCold)*wb:.6*cl(1+(35-sT)/28,.55,1.6)*(1+.2*cloud)*(t0>cp.opt+cp.wd*.3?.9:1);c.tt[a]+=d*.03*k*dt*(.8+.2*cp.h)}
   /* wheelspin, sliding and lock-ups cook the surface of the tyre almost at once (and tear the tread) */
   {const sl=Math.max(0,Math.abs(a?ar:af)-.1),spin=a?Math.max(0,(c.wspin||0)-.1):0,lk=!a&&c.lock?1:0,h=(spin*(c.burn?14:Math.min(1,.3+v/15)*6)+sl*Math.min(v,70)*.4+lk*5)*cp.h*Math.max(.2,1-Math.max(0,c.tt[a]-cp.opt-cp.wd*.6)/32);
@@ -1041,7 +1041,7 @@ const NSEG=Math.ceil(N/16),segOf=i=>(i>>4)%NSEG;
 const BRAKE_SEG=new Uint8Array(NSEG);for(let s=0;s<NSEG;s++){const i=s*16;let d=0;for(let o=0;o<16;o++)d=Math.max(d,VR[W(i+o)]-VR[W(i+o+8)]);BRAKE_SEG[s]=d>6?1:0}
 function initLearning(c,start,lr){c.pace=new Float32Array(NSEG).fill(start);c.plim=new Float32Array(NSEG).fill(1.14);c.nUp=new Uint16Array(NSEG);c.lrK=lr;c.seg=segOf(c.idx);c.segBad=0;c.segBusy=0;
  /* corner memory: earlier braking, gentler exits, a different line, and how often it went wrong here */
- c.exitK=new Float32Array(NSEG);c.aB=new Float32Array(NSEG).fill(1);c.aT=new Float32Array(NSEG).fill(1);c.aL=new Float32Array(NSEG);c.mMem=new Uint8Array(NSEG);c.pLoss=new Float32Array(NSEG);c.locT=-9;c.saidSeg={}}
+ c.err=new Uint8Array(NSEG);c.okN=new Uint16Array(NSEG);c.ctxK=0;c.exitK=new Float32Array(NSEG);c.aB=new Float32Array(NSEG).fill(1);c.aT=new Float32Array(NSEG).fill(1);c.aL=new Float32Array(NSEG);c.mMem=new Uint8Array(NSEG);c.pLoss=new Float32Array(NSEG);c.locT=-9;c.saidSeg={}}
 /* corner names for radio calls */
 const CORNERS=(()=>{const out=[];for(let i=0;i<N;i++){const k=KRa[i];if(k>1/220&&k>=KRa[W(i-1)]&&k>=KRa[W(i+1)]&&(!out.length||i-out[out.length-1]>12))out.push(i)}return out})();
 /* a car on a flying lap in practice or qualifying: an AI car on its push lap, or the player when he is driving at racing pace (the run plan only says
@@ -1049,7 +1049,16 @@ const CORNERS=(()=>{const out=[];for(let i=0;i<N;i++){const k=KRa[i];if(k>1/220&
 const isFly=o=>R.type!=='R'&&!o.pitPh&&!o.out&&!o.park&&!o.gone&&(o.human&&!o.ai?Math.hypot(o.vx,o.vy)>.85*VR[o.idx]:o.modeK>=.95);
 const turnOf=i=>{let b=0,bd=1e9;CORNERS.forEach((k,j)=>{const d=Math.min(W(k-i),W(i-k));if(d<bd){bd=d;b=j}});return b+1};
 /* a loss of control: work out what went wrong and attack this corner differently next time */
-function adaptLoss(c,s,why){const pv=(s+NSEG-1)%NSEG,nx=(s+1)%NSEG;c.mMem[s]=Math.min(9,c.mMem[s]+1);let say=null;
+/* v69: how much the situation, not the driver's chosen pace, explains a moment: cold or worn tyres, damage, dirty air from a car close ahead,
+   a recent knock, a yellow flag. A mistake made in such a moment is met with caution for a while (ctxK, fading), not a permanent cut in that corner */
+function ctxOf(c){return ctxInfo(c).v}
+function ctxInfo(c){if(!c.tt)return{v:0,k:''};const cold=coldOf(c)*1.2,wear=cl((Math.max(c.tw[0],c.tw[1])-.6)/.3,0,1),dmg=cl((1-(c.dmK??1))*4,0,1),dirty=cl((c.dirty||0)*.9,0,1),hit=c.lastHit&&simT-c.lastHit<4?1:0,yel=typeof R!=='undefined'&&R.yellowAt&&R.yellowAt(c.idx)?.8:0;const fight=c.fightNow?.9:0,carV=Math.max(cold,wear,dmg),v=Math.max(carV,dirty,hit,yel,fight);return{v,k:v<=0?'':fight>=v||dirty>=v?'fight':carV>=v?'car':hit>=v?'hit':'yellow'}}
+/* v69: wheel to wheel, or close behind in dirty air: set every frame */
+function fightOf(c){let f=0;for(const o of cars){if(o===c||o.out||o.gone||o.pitPh||o.park)continue;let d=W(o.idx-c.idx);if(d>N/2)d-=N;if((Math.abs(d)<3&&Math.abs(o.lt-c.lt)<4.5)||(d>0&&d<5&&Math.abs(o.lt-c.lt)<2.2)){f=1;break}}return f}
+/* a fight-time margin for one corner (learned) */
+function bmK(c,s){return c.fightNow&&c.bm?1-c.bm[s]:1}
+function adaptLoss(c,s,why){const CI=ctxInfo(c);if(CI.v>.5&&CI.k==='fight'&&c.bm){/* lost it in a fight: in fights, this corner gets more room from now on */c.bm[s]=Math.min(.07,c.bm[s]+.02);c.bm[(s+NSEG-1)%NSEG]=Math.min(.05,c.bm[(s+NSEG-1)%NSEG]+.01)}if(CI.v>.5){/* the situation played a part: back off everywhere for a while, and a lighter (but lasting) note on this corner than for a mistake of its own */c.ctxK=Math.min(.035,(c.ctxK||0)+.012);if(why==='brake'){c.aB[s]=Math.min(1.15,c.aB[s]+.03);c.aB[(s+NSEG-1)%NSEG]=Math.min(1.1,c.aB[(s+NSEG-1)%NSEG]+.015)}else if(why==='exit'){c.aT[s]=Math.max(.66,c.aT[s]-.06)}else{c.aL[s]=Math.min(1,c.aL[s]+.15);if(c.pLoss[s]<.02){c.pace[s]=Math.max(.86,c.pace[s]-.004);c.pLoss[s]+=.004}}return}
+ if(c.err)c.err[s]=Math.min(9,c.err[s]+1);if(c.okN)c.okN[s]=0;const pv=(s+NSEG-1)%NSEG,nx=(s+1)%NSEG;c.mMem[s]=Math.min(9,c.mMem[s]+1);let say=null;
  /* the same mistake at the same place a second time: a firm step back there, and the pace is not allowed to creep up again */
  if(c.mMem[s]>=2){c.pace[s]=Math.max(.84,c.pace[s]-.012);c.plim[s]=Math.min(c.plim[s],c.pace[s]+.004)}
  if(why==='brake'){c.aB[s]=Math.min(1.18,c.aB[s]+.05);c.aB[pv]=Math.min(1.12,c.aB[pv]+.025);say='Locked up into Turn '+turnOf(c.idx)+'. I will brake earlier there.'}
@@ -1062,8 +1071,17 @@ function adaptTL(c,s){if(!c.aL)return;if(!c.tlCnt)c.tlCnt=new Uint8Array(NSEG);c
  c.aL[s]=Math.min(1.4,c.aL[s]+.3);c.pace[s]=Math.max(.86,c.pace[s]-.01);c.pace[pv]=Math.max(.86,c.pace[pv]-.006);c.plim[s]=Math.min(c.plim[s],c.pace[s]+.01)}
 const nextCorner=(i,maxJ)=>{for(let j=4;j<maxJ;j++){const k=W(i+j);if(KRa[k]>1/160)return{j,dir:Math.sign(KRs[k])}}return null};
 /* how fast this bot thinks it can take index i right now */
-function tvAt(c,i){let p=c.pace[segOf(i)]*(c.qBoost||1)*(c.dmK||1)*/* with downforce, cornering speed falls faster than sqrt(grip) when the tyres are off: drive to the grip you have */Math.pow(cl(c.gk,.55,1.012),.5+.22*cl((.95-c.gk)/.1,0,1)+.5*Math.max(0,.85-c.gk))*(1-.035*(c.dirty||0)*(STR[i]?0:1));if(c.mFast>0&&segOf(i)===c.mSeg)p*=1.06;/* 3D: the body takes a moment to settle on its springs, so leave a hair more margin */if(PH3&&!c.isSC)p*=.99*(1-.1*cl((KRa[i]-1/40)/(1/14-1/40),0,1));/* 3D hairpins: the inside wheels go light and the open diff lets the inside rear spin, so the tightest corners take a little more margin *//* drivers feel the wind: a tailwind through a fast corner takes downforce away, a headwind adds it */if(!c.isSC){const vr=VR[i],sh=KD*vr*vr/800/(G+KD*vr*vr/800);p*=1-cl(windAlong(i),-8,10)*sh*(windAlong(i)>0?1.05:.6)/Math.max(18,vr)}/* warned for track limits: give every corner a little more room for the rest of the race */if(c.tlw&&R.type==='R'&&!c.isSC)p*=1-.004*Math.min(5,c.tlw);/* confidence: a confident driver is a hair quicker, a shaken one leaves more margin */if(c.mind&&!c.isSC)p*=.997+.005*c.mind.conf;return VR[i]*p*c.modeK}
-function learnTick(c,R){const s=segOf(c.idx),v=Math.hypot(c.vx,c.vy);
+function tvAt(c,i){let p=c.pace[segOf(i)]*(c.qBoost||1)*(c.dmK||1)*/* with downforce, cornering speed falls faster than sqrt(grip) when the tyres are off: drive to the grip you have */Math.pow(cl(c.gk,.55,1.012),.5+.22*cl((.95-c.gk)/.1,0,1)+.5*Math.max(0,.85-c.gk))*(1-.035*(c.dirty||0)*(STR[i]?0:1));if(c.mFast>0&&segOf(i)===c.mSeg)p*=1.06;/* 3D: the body takes a moment to settle on its springs, so leave a hair more margin */if(PH3&&!c.isSC)p*=.99*(1-.1*cl((KRa[i]-1/40)/(1/14-1/40),0,1));/* 3D hairpins: the inside wheels go light and the open diff lets the inside rear spin, so the tightest corners take a little more margin *//* drivers feel the wind: a tailwind through a fast corner takes downforce away, a headwind adds it */if(!c.isSC){const vr=VR[i],sh=KD*vr*vr/800/(G+KD*vr*vr/800);p*=1-cl(windAlong(i),-8,10)*sh*(windAlong(i)>0?1.05:.6)/Math.max(18,vr)}/* warned for track limits: give every corner a little more room for the rest of the race */if(c.tlw&&R.type==='R'&&!c.isSC)p*=1-.004*Math.min(5,c.tlw);/* confidence: a confident driver is a hair quicker, a shaken one leaves more margin */if(c.mind&&!c.isSC)p*=.997+.005*c.mind.conf;/* v69: on cold tyres (fresh set, out of the pits) the grip is not only lower but less predictable: a little extra margin until they are in */if(!c.isSC)p*=(1-.04*coldOf(c))*(1-(c.ctxK||0))*bmK(c,segOf(i));return VR[i]*p*c.modeK}
+/* v69: overtaking places are learned too. Every move down the inside is judged a few seconds later: through and ahead is a win there, running
+   wide, a knock or still behind is a loss. A bot then tries more often where its moves work and less where they keep failing */
+function atkK(c,s){if(!c.atkW)return 1;return cl((1+c.atkW[s])/(1+1.5*c.atkL[s]),.35,1.6)}
+function atkStart(c,o,s){if(!c.atkW){c.atkW=new Uint8Array(NSEG);c.atkL=new Uint8Array(NSEG)}c.atkTry={o,s,t:simT,gap0:o.prog-c.prog,wide0:c.wideN||0,hit0:c.lastHit||0}}
+function atkCheck(c){const A=c.atkTry;if(!A)return;const o=A.o,dt=simT-A.t;if(o.out||o.pitPh||R.slow){c.atkTry=null;return}
+ const ahead=c.prog>o.prog+2,bad=(c.wideN||0)>A.wide0||(c.lastHit||0)>A.hit0;
+ if(ahead&&dt>.8){c.atkW[A.s]=Math.min(9,c.atkW[A.s]+1);c.atkTry=null}
+ else if(bad||dt>5){c.atkL[A.s]=Math.min(9,c.atkL[A.s]+1);c.atkTry=null;if(c.ai&&c.atkL[A.s]===2&&rnd()<.5&&typeof radio==='function')radio(c,'Can not make it stick into Turn '+turnOf(A.s*16+8)+'. I will set it up somewhere else.')}}
+function coldOf(c){const cp=CMP[c.cmp];return cl((cp.opt-.5*cp.wd-Math.min(c.tt[0],c.tt[1]))/(.6*cp.wd),0,1)}
+function learnTick(c,R){const s=segOf(c.idx),v=Math.hypot(c.vx,c.vy);if(c.atkTry)atkCheck(c);c.fightNow=R.type==='R'&&!c.pitPh?fightOf(c):0;if(!c.bm)c.bm=new Float32Array(NSEG);
  c.lapTmax=Math.max(c.lapTmax||0,c.tt[0],c.tt[1]);c.segSpin=Math.max(c.segSpin||0,c.wspin||0);
  /* slide memory: how far the rear stepped out in this segment, and what the driver was doing */
  if(v>32&&!c.pitPh&&Math.abs(c.ar)>.06&&!c.slipOn){c.slipOn=1;c.slipThr=c.thr;c.slipBrk=Math.max(c.brk,c.brkPrev||0)}
@@ -1076,7 +1094,7 @@ function learnTick(c,R){const s=segOf(c.idx),v=Math.hypot(c.vx,c.vy);
     The memory fades only slowly, so the same mistake is not repeated lap after lap */
  if(!c.tlM)c.tlM=new Float32Array(NSEG);
  {const wide=Math.abs(c.lt)>HW+.25&&(c.sL>=2||c.sR>=2)&&!c.pitPh&&v>18&&R.phase!=='formation';
-  if(wide&&!c.wideOn){c.wideOn=1;const both=c.sL>=2&&c.sR>=2,k=both?.32:.18,sd=-Math.sign(c.lt),pv=(s+NSEG-1)%NSEG;c.tlM[s]=cl(c.tlM[s]+sd*k,-1.6,1.6);c.tlM[pv]=cl(c.tlM[pv]+sd*k*.6,-1.6,1.6);c.pace[s]=Math.max(.86,c.pace[s]-(both?.006:.003));c.wideN=(c.wideN||0)+1;if(!c.tlCnt)c.tlCnt=new Uint8Array(NSEG);c.tlCnt[s]=Math.min(20,c.tlCnt[s]+(both?2:1))}
+  if(wide&&!c.wideOn){c.wideOn=1;const both=c.sL>=2&&c.sR>=2,ctx=ctxOf(c)>.5,k=(both?.32:.18)*(ctx?.5:1),sd=-Math.sign(c.lt),pv=(s+NSEG-1)%NSEG;c.tlM[s]=cl(c.tlM[s]+sd*k,-1.6,1.6);c.tlM[pv]=cl(c.tlM[pv]+sd*k*.6,-1.6,1.6);if(ctx){c.ctxK=Math.min(.035,(c.ctxK||0)+.006);if(c.fightNow&&c.bm)c.bm[s]=Math.min(.07,c.bm[s]+.008)}else{c.pace[s]=Math.max(.86,c.pace[s]-(both?.009:.005));/* v69: a corner where it keeps running wide is approached ever more carefully: smaller steps back up, and a lower ceiling */if(c.err){c.err[s]=Math.min(9,c.err[s]+(both?1:0));c.okN[s]=0;c.plim[s]=Math.min(c.plim[s],c.pace[s]+.006)}}c.wideN=(c.wideN||0)+1;if(!c.tlCnt)c.tlCnt=new Uint8Array(NSEG);c.tlCnt[s]=Math.min(20,c.tlCnt[s]+(both?2:1))}
   else if(!wide&&Math.abs(c.lt)<HW-.3)c.wideOn=0}
  /* a mistake is anything that shows the bot went past what the car could hold */
  const off=(c.sL>=2&&c.sR>=2)||Math.abs(c.lt)>HW+1.2,slide=Math.abs(c.ar)>.12||Math.abs(c.af)>.17,line=Math.abs(c.lt-(c.tLatHere??c.tLat??c.lt))>3.2,wall=c.lastHit&&simT-c.lastHit<.3;
@@ -1100,8 +1118,15 @@ function learnTick(c,R){const s=segOf(c.idx),v=Math.hypot(c.vx,c.vy);
     else{E.k='limit';E.old=c.plim[s];c.plim[s]=Math.min(1.16,c.plim[s]+.008)}
     c.exp=E}}
   if(c.learnOn&&!c.segBusy&&!R.slow&&c.modeK>.95&&!c.pitPh){
-   if(c.segBad){if(c.mSeg!==ps)c.plim[ps]=Math.min(c.plim[ps],c.pace[ps]+.004);c.pace[ps]=Math.max(.86,c.pace[ps]-.018);const pp=(ps+NSEG-1)%NSEG;c.pace[pp]=Math.max(.86,c.pace[pp]-.008)}
-   else{const st=Math.max(.003,.03/(1+.35*c.nUp[ps]))*c.lrK;c.pace[ps]=Math.min(c.plim[ps]-c.drv.mrg,c.pace[ps]+st);c.nUp[ps]++}}
+   /* v69: learning a corner like a driver does. A mistake of its own (no excuse in the situation): step back, set the ceiling just below
+      where it went wrong, and come back up in smaller steps the more often it has gone wrong there. A clean pass: a step up. After a run of
+      clean passes the ceiling is tried again, slowly (the car gets lighter, the rubber goes down, the limit moves). A mistake the situation
+      explains (cold or worn tyres, damage, dirty air, a knock): caution for a while, no lasting cut */
+   const E=c.err?c.err[ps]:0;
+   if(c.segBad){const CI=ctxInfo(c);if(CI.v>.5){c.ctxK=Math.min(.035,(c.ctxK||0)+.008);c.pace[ps]=Math.max(.86,c.pace[ps]-.008);if(CI.k==='fight'&&c.bm)c.bm[ps]=Math.min(.07,c.bm[ps]+.012)}
+    else{const was=c.pace[ps];if(c.mSeg!==ps)c.plim[ps]=Math.min(c.plim[ps],was-.002);c.pace[ps]=Math.max(.86,was-.012-.004*Math.min(4,E));const pp=(ps+NSEG-1)%NSEG;c.pace[pp]=Math.max(.86,c.pace[pp]-.006);if(c.err){c.err[ps]=Math.min(9,E+1);c.okN[ps]=0}}}
+   else{if(c.fightNow&&c.bm)c.bm[ps]*=.97;const st=Math.max(.003,.03/(1+.35*c.nUp[ps]))*c.lrK/(1+1.5*E);c.pace[ps]=Math.min(c.plim[ps]-c.drv.mrg,c.pace[ps]+st);c.nUp[ps]++;
+    if(c.okN){c.okN[ps]=Math.min(60000,c.okN[ps]+1);if(c.okN[ps]>6)c.plim[ps]=Math.min(1.14,c.plim[ps]+.0012/(1+E))}}}
   /* a drift or slide here: next time feed the throttle in gentler, carry a little less speed, brake a touch earlier */
   if(c.aB&&(c.segSlip||0)>.075&&!R.slow&&R.phase==='run'){const k=Math.min(1,(c.segSlip-.075)/.08);
    if(c.slipThr>.4){c.aT[ps]=Math.max(.6,c.aT[ps]-.05-.06*k)}
@@ -1112,7 +1137,7 @@ function learnTick(c,R){const s=segOf(c.idx),v=Math.hypot(c.vx,c.vy);
   else if(!c.segBad&&c.aB){c.aB[ps]=1+(c.aB[ps]-1)*.9;c.aT[ps]=1-(1-c.aT[ps])*.9;/* corners where it has gone wide before are remembered far longer */const tk=c.tlCnt?1+c.tlCnt[ps]:1;c.aL[ps]*=1-.05/tk;c.pLoss[ps]*=1-.1/tk;if(c.tlM)c.tlM[ps]*=1-.015/tk}
   if((c.segSpin||0)>.3&&c.aT&&!R.slow){c.aT[ps]=Math.max(.6,c.aT[ps]-.04);c.spinN=(c.spinN||0)+1;if(c.ai&&c.spinN%7===1&&!c.saidSeg['w'+ps]){c.saidSeg['w'+ps]=1;radio(c,'Wheelspin out of Turn '+turnOf(W(c.idx-6))+'. Going easier on the throttle there.')}}
   c.segSpin=0;
-  c.segBad=0;c.segBusy=0;c.segSlip=0;
+  c.segBad=0;c.segBusy=0;c.segSlip=0;if(c.ctxK)c.ctxK=c.ctxK*.95<.001?0:c.ctxK*.95;
   /* random mistakes at braking zones: late braking, lock-ups, too much speed, too much kerb */
   if(BRAKE_SEG[s]&&!c.pitPh&&!R.slow&&R.phase!=='formation'&&R.phase!=='grid'&&c.modeK>.9){const press=c.press?1.8:1,wear=1+2*Math.max(0,Math.max(c.tw[0],c.tw[1])-.6);
    if(rnd()<.018*(1-c.drv.cons)*4*press*wear*(R.type==='P'?1.3:1)*Math.pow(.35,c.mMem[s]||0)){c.mMem[s]=Math.min(9,(c.mMem[s]||0)+1);const k=rnd();c.mSeg=s;
@@ -1287,9 +1312,9 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
     const room=straight||(nc&&nc.j>9),qr=straight&&!commit,canPass=(race||lapping)&&!R.yellowAt(bi)&&!o.isSC&&(qFree||slowO?true:room)&&(close>.2||c.tow>.2||c.ot||c.otOK||slowO/* v68: a crawling car is passed even when we have already slowed to its speed */)&&fx<(qFree||slowO?Math.max(45,close*3.2+12):c.ot&&straight?62:c.otOK?48:40)&&(lapping||!straight||fx<=pullAt||commit||(c.ot&&strLeft>v*2.2));
     if(canPass&&(want===null||c.towing)){let side=(qFree||slowO)&&Math.abs(oLat-lt)>.3?(oLat>lt?-1:1):c.atkSide||(nc?nc.dir:(oLat>0?-1:1));if(Math.abs(oLat+side*3.4)>HW-1)side=-side;c.atkSide=side;want=oLat+side*3.4;c.atk=1;c.towing=0}
     /* ---- late-braking lunge down the inside ---- */
-    else if(race&&!lapping&&nc&&nc.j<32&&nc.j>5&&fx<10&&fx>-1&&Math.abs(ly)>1.4&&Math.sign(ly)===-nc.dir&&c.diveSeg!==segOf(bi)&&!(c.fltSeg&&c.fltSeg[segOf(bi)])&&rnd()<(.36+aggr*.46)*(c.riskK??1)*(c.otOK?1.5:1)*(typeof isRival==='function'&&isRival(c,o)?1.3:1)&&c.emerg<.1){c.diveSeg=segOf(bi);c.mLate=.07+.1*aggr;want=oLat+nc.dir*3.3;c.atk=1}
+    else if(race&&!lapping&&nc&&nc.j<32&&nc.j>5&&fx<10&&fx>-1&&Math.abs(ly)>1.4&&Math.sign(ly)===-nc.dir&&c.diveSeg!==segOf(bi)&&!(c.fltSeg&&c.fltSeg[segOf(bi)])&&rnd()<(.36+aggr*.46)*(c.riskK??1)*(c.otOK?1.5:1)*(typeof isRival==='function'&&isRival(c,o)?1.3:1)*atkK(c,segOf(bi))&&c.emerg<.1){c.diveSeg=segOf(bi);c.mLate=.07+.1*aggr;want=oLat+nc.dir*3.3;c.atk=1;atkStart(c,o,segOf(bi))}
     /* ---- a big risk: lunge from further back and brake very late (can win the place or end in the wall) ---- */
-    else if(race&&!lapping&&nc&&nc.j<40&&nc.j>6&&fx<20&&fx>3&&c.riskSeg!==segOf(bi)&&R.phase==='run'){c.riskSeg=segOf(bi);if(!(c.fltSeg&&c.fltSeg[segOf(bi)])&&rnd()<(.07+.14*aggr*(c.style?c.style.risk:1))*(c.riskK??1)*(typeof isRival==='function'&&isRival(c,o)?1.4:1)){c.mLate=.16+.14*aggr;want=cl(oLat+nc.dir*3.4,-(HW-.9),HW-.9);c.atk=1;c.riskT=simT;c.ev&&c.ev('risk','attack')}}
+    else if(race&&!lapping&&nc&&nc.j<40&&nc.j>6&&fx<20&&fx>3&&c.riskSeg!==segOf(bi)&&R.phase==='run'){c.riskSeg=segOf(bi);if(!(c.fltSeg&&c.fltSeg[segOf(bi)])&&rnd()<(.07+.14*aggr*(c.style?c.style.risk:1))*(c.riskK??1)*(typeof isRival==='function'&&isRival(c,o)?1.4:1)*atkK(c,segOf(bi))){c.mLate=.16+.14*aggr;want=cl(oLat+nc.dir*3.4,-(HW-.9),HW-.9);c.atk=1;c.riskT=simT;c.ev&&c.ev('risk','attack');atkStart(c,o,segOf(bi))}}
     /* ---- following through the turns: different line to set up the exit ---- */
     else if(race&&!straight&&fx<20&&want===null&&!lapping&&nc&&nc.j<25){want=RO[ti]-nc.dir*1.1*(c.exitK?(.6+c.exitK[segOf(bi)]):1)}
     const stopped=(o.out||ov<4)&&(oLat+3.6<HW-1||oLat-3.6>-(HW-1));
@@ -1440,7 +1465,7 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
  if(!c.pitPh&&!c.isSC&&(c.yieldT===simT||c.dmgSlow)&&Math.abs(tLat-RO[ti])>1.6){let km=0;for(let k=0;k<=10;k+=2)km=Math.max(km,KRa[W(bi+k)]);if(km>1/90)tv=Math.min(tv,Math.sqrt(Math.max(.4,Math.min(1,c.gk||1))*12/km))}
  c.tLat=tLat;/* the line where the car is now (tLat is the target some way ahead): used to judge whether the car is off its line */try{c.tLatHere=latFn(bi)}catch(e){c.tLatHere=tLat}
  /* ---- speed: look ahead for the hardest braking requirement ---- */
- const m=c.mass,dfl=1-.157*(c.broke.fw?1:c.dm.fw)-.227*(c.broke.rw?1:c.dm.rw),capB=.93*MU0*cl(c.gk,.6,1.012)*(G+v*v*Math.min(0,VK[bi])+v*v*KD*(c.dfK||1)*dfl/m)*(PH3&&!c.isSC?(KRa[bi]>.002&&v>45?.9:.97):1)+CDH*v*v/m;/* over a crest the tyres are lighter; in 3D the car pitches and squirms under braking, so leave a little more room */
+ const m=c.mass,dfl=1-.157*(c.broke.fw?1:c.dm.fw)-.227*(c.broke.rw?1:c.dm.rw),capB=.93*(1-.05*coldOf(c))*MU0*cl(c.gk,.6,1.012)*(G+v*v*Math.min(0,VK[bi])+v*v*KD*(c.dfK||1)*dfl/m)*(PH3&&!c.isSC?(KRa[bi]>.002&&v>45?.9:.97):1)+CDH*v*v/m;/* over a crest the tyres are lighter; in 3D the car pitches and squirms under braking, so leave a little more room */
  /* straights are not a speed target: only the corners ahead (through the braking look-ahead) and traffic limit speed there */
  const flatOK=!c.pitPh&&!c.isSC&&R.phase==='run'&&(R.type==='R'||c.modeK>=.95),tvA=k=>flatOK&&STR[k]?VT:tvAt(c,k);
  let need=0,tv0=Math.min(tv,tvA(bi));const aBk=(c.aB?Math.max(c.aB[segOf(bi)],c.aB[segOf(W(bi+12))]):1)*(c.bfade<1?1/Math.max(.5,c.bfade):1)*(c.bt>900?1.04:1)*(c.bfail?3.2:1);
@@ -1655,7 +1680,9 @@ function laneClear(c){const rc=relOf(c.idx);for(const o of cars){if(o===c||o.gon
   if(Math.hypot(o.vx,o.vy)<1.5&&o.pitPh!==3)continue;
   /* only a car about to pass the box in the fast lane holds the release (about 1 s of lane behind) */
   if(ro<=rc+2&&ro>=rc-Math.max(4,Math.round(Math.hypot(o.vx,o.vy)*2/DS))&&(o.pitPh===3||Math.abs(o.lt-BL)>.8))return false}return true}
-function fitTyres(c,cmp){c.cmp=cmp;c.stMist=0;c.winCold=0;c.winHot=0;c.tw=[0,0];c.tt4=null;c.tw4=null;c._twP=null;c.pk={d:[0,0,0,0],r:[0,0],k:[0,0,0,0]};/* no tyre blankets: a fresh set goes on at the garage/air temperature and has to be brought in on track */c.tt=typeof TRACK!=="undefined"&&TRACK.T!=null?[TRACK.T+15,TRACK.T+16]:[45,46];c.flat=[0,0,0,0];c.fsMsg=0;c.saidCliff=0;c.saidHot=0;c.saidCold=0;c.punct=[0,0,0,0];c.pres=[1,1,1,1];c.prate=[0,0,0,0];c.fsA=[0,0,0,0];c.age=0;c.used[cmp]=1}
+/* v69: blanket temperature (fronts a touch warmer: the blanket goes on them last); never below what the air would give */
+function blanketT(){const T=typeof TRACK!=="undefined"&&TRACK.T!=null?TRACK.T:30;return[Math.max(T+15,67),Math.max(T+16,64)]}
+function fitTyres(c,cmp){c.cmp=cmp;c.stMist=0;c.winCold=0;c.winHot=0;c.tw=[0,0];c.tt4=null;c.tw4=null;c._twP=null;c.pk={d:[0,0,0,0],r:[0,0],k:[0,0,0,0]};/* v69: tyre blankets, set low: a fresh set goes on pre-warmed a little (about 70 C on the blanket, a few degrees lost while it is fitted), so it still needs bringing in on track but not from cold */c.tt=blanketT();c.flat=[0,0,0,0];c.fsMsg=0;c.saidCliff=0;c.saidHot=0;c.saidCold=0;c.punct=[0,0,0,0];c.pres=[1,1,1,1];c.prate=[0,0,0,0];c.fsA=[0,0,0,0];c.age=0;c.used[cmp]=1}
 function resetCar(c){Object.assign(c,{out:false,why:'',gone:false,park:false,pitPh:0,pitReq:false,lapsDone:0,lapStart:null,lapValid:true,last:null,best:null,bestT:null,sec:[null,null,null],secBest:[null,null,null],secT0:null,
  fin:false,finT:null,pen:0,penTot:0,penLog:[],swW:0,swT:-99,giveBack:null,ltS:null,unlap:false,tlw:0,tlOff:false,dsq:false,dtPend:null,thru:0,bfDsq:false,blue:0,blueSince:null,blockT:0,blueN:0,lapOffN:0,smoke:0,ers:ERS_CAP,harv:0,off:0,tLat:null,defLat:null,atk:0,mFast:0,mKerb:0,mLate:0,forceLock:0,hold:false,launch:0,lastHit:0,run:null,stints:[],laneSpeed:0,ot:false,otOK:false,otUntil:-1,lapTimes:[]});
  c.dm={fw:0,rw:0,fl:0,fr:0,rl:0,rr:0,floor:0,eng:0,gb:0};c.broke={};c.align=null;c.used={};c.seg=segOf(c.idx)}
@@ -1680,7 +1707,7 @@ function startSession(type){if(typeof cars!=='undefined')for(const c of cars){c.
  scCar();
  if(type==='R'){R.laps=CFG.laps;R.phase='grid';R.lights=0;R.lightsAt=simT;R.outAt=5+rr(.4,2.4);
   let ord=R.grid||cars.slice().sort((a,b)=>(a.drv.mrg-b.drv.mrg)+(rnd()-.5)*.01);{const g=[];for(const c of ord.concat(cars))if(!g.includes(c))g.push(c);ord=g}R.grid=ord;
-  ord.forEach((c,p)=>{const g=gridSlot(p);placeCar(c,g.i,g.lt);c.tt=[TRACK.T+14,TRACK.T+15];c.tt4=null;c.gridPos=p;c.gridAhead=g.i<N/2;if(c.gridAhead)c.lapsDone=1;c.gx=c.x;c.gy=c.y;c.hold=true;c.lim=false;c.fmD=0;c.fmDone=0;c.fmGone=0;c.push=null;c.pitReq=false;c.ahead=null;c.int=null;
+  ord.forEach((c,p)=>{const g=gridSlot(p);placeCar(c,g.i,g.lt);/* v69: on the grid the blankets come off a few minutes before the formation lap */c.tt=(b=>[b[0]-6,b[1]-6])(blanketT());c.tt4=null;c.gridPos=p;c.gridAhead=g.i<N/2;if(c.gridAhead)c.lapsDone=1;c.gx=c.x;c.gy=c.y;c.hold=true;c.lim=false;c.fmD=0;c.fmDone=0;c.fmGone=0;c.push=null;c.pitReq=false;c.ahead=null;c.int=null;
    if(c.ai)c.setup={...(c.setup||SETUP0),d:cl(((c.btMax||0)>930?.5:(c.btMax||800)<640?-.5:0)+cl((c.fcDT||0)*.03,-.25,.25),-1,1)};c.btMax=0;
    const fpl=Math.max(c.fuelPerLap&&c.fuelPerLap>.4?c.fuelPerLap*1.05:0,FUEL_EST());c.fuel=Math.min(110,fpl*(CFG.laps+(CFG.formation!==false?.85:.25)+1.3)+1);/* v68: a slightly bigger margin (a car ran dry in the last corner) */c.fuelPerLapPlan=fpl;c.mass=M0+c.fuel;c.fuel0=c.fuel;c.fuelPerLap=null;c.lapDepK=.8;c.modeK=.986;planStrategy(c);fitTyres(c,c.plan[0].cmp)});
   msg('RACE – '+CFG.laps+' LAPS. Tyre rule: '+(CFG.laps>=5?'two compounds required':'off for short races'),'rc');
@@ -1840,7 +1867,9 @@ function stewards(){
   if(simT<x.at)continue;x.done=1;
  let dsum=0;for(const k in x.v.dm)dsum+=x.v.dm[k];const dd=x.d0!=null?dsum-x.d0:0,dmg=x.d0!=null?dd:Math.max(...Object.values(x.v.dm)),placesLost=x.p0!=null&&x.v.pos!=null?x.v.pos-x.p0:0;
  const pts=(x.v.out?4:0)+(x.sp?2:0)+(x.lost?1:0)+(dmg>.5?3:dmg>.25?2:dmg>.08?1:0)+(placesLost>=2?1:0);
- const sev=x.lapF?(x.v.out||dmg>.6?-1:pts>=2?30:pts>=1?15:5):(pts>=6?-2:pts>=3?10:pts>=1?5:0);
+ /* v69: the heavy lapped-car scale (up to a disqualification) is for a lapped car that ignored blue flags. A car a lap down because it is damaged and
+    limping, that loses control and hits someone, is judged like anyone else (it had been disqualifying limping cars, and the car it hit, in a chain) */
+ const lapBF=x.lapF&&/blue flags/.test(x.why||'');const sev=lapBF?(x.v.out||dmg>.6?-1:pts>=2?30:pts>=1?15:5):(pts>=6?-2:pts>=3?10:pts>=1?5:0);
  const dup=R.inv.some(y=>y!==x&&y.done&&y.pen&&y.f===x.f&&y.turn===x.turn&&y.lap===x.lap);
  if(sev<0&&!dup){x.pen=1;dsqCar(x.f,'a lapped car causing a collision that ended '+x.v.code+'\'s race (turn '+x.turn+', lap '+x.lap+')')}
  else if(sev===-2&&!dup){x.pen=1;learnFault(x.f,x.seg,2);giveDT(x.f,'causing a collision'+(x.v.out?' that ended the race of '+x.v.code:' that badly damaged '+x.v.code)+(x.why?' – '+x.why:'')+' (turn '+x.turn+', lap '+x.lap+')')}
@@ -3414,41 +3443,42 @@ const SMOKETX=(()=>{const S=512,H=256,cv=document.createElement('canvas');cv.wid
  const vn=(x,y)=>{const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf),at=(a,b)=>grid[((b&(G-1))*G)+(a&(G-1))];
   return (at(xi,yi)*(1-u)+at(xi+1,yi)*u)*(1-v)+(at(xi,yi+1)*(1-u)+at(xi+1,yi+1)*u)*v};
  const fbm=(x,y)=>{let s=0,a=.5,f=1;for(let o=0;o<5;o++){s+=a*vn(x*f,y*f);f*=2.07;a*=.5}return s};
- /* v68: billowing puffs: a soft, lumpy body (cauliflower lumps from fractal noise) whose outer part tears into wisps, so a cloud
-    of them reads as real tyre smoke with volume, not as thin streaks. Channel R carries the small lumps used for shading */
+ /* v69: smoke, not cloud: a softer body made of swirled, torn streaks (fractal noise pushed around by more fractal noise), dense in
+    its core and frayed at the edge, so overlapping puffs read as moving smoke with structure. Channel R carries the swirl detail for shading */
  for(let q=0;q<4;q++){const ox=(q%2)*H,oy=(q>>1)*H,sx=q*17.3+3,sy=q*9.1+5;
   for(let y=0;y<H;y++)for(let x=0;x<H;x++){const u=(x+.5)/H*2-1,v=(y+.5)/H*2-1;
-   const wx=fbm(u*1.5+sx,v*1.5+sy)-.5,wy=fbm(u*1.5+sy+7,v*1.5+sx+3)-.5,r=Math.hypot(u+wx*.5,v+wy*.5);
-   const body=1-Math.min(1,Math.max(0,(r+.3*(fbm(u*2.1+sy,v*2.1+sx)-.5)-.28)/.62)),lump=fbm(u*3.3+sx,v*3.3+sy);
-   const edge=Math.min(1,Math.max(0,(r-.42)/.45)),tear=Math.min(1,Math.max(0,(fbm(u*5.3+sy,v*5.3+sx)-.38)*3.2));
-   const d=Math.min(1,Math.max(0,body*body*(3-2*body))*(.62+.55*lump)*(1-edge+edge*tear)*1.15),k=((oy+y)*S+ox+x)*4,c=Math.round(255*Math.min(1,.45+.75*lump));
+   const w1=fbm(u*1.3+sx,v*1.3+sy)-.5,w2=fbm(u*1.3+sy+7,v*1.3+sx+3)-.5,uu=u+w1*.9,vv=v+w2*.9,r=Math.hypot(u+w1*.35,v+w2*.35);
+   const swirl=fbm(uu*2.6+sx,vv*2.6+sy),fine=fbm(uu*5.7+sy,vv*5.7+sx);
+   const body=1-Math.min(1,Math.max(0,(r-.12)/.78)),core=body*body*(3-2*body);
+   const streak=Math.min(1,Math.max(0,(swirl-.32)*2.4))*(.7+.3*fine);
+   const d=Math.min(1,core*(.55+.85*streak)*(.8+.3*fine)*1.1),k=((oy+y)*S+ox+x)*4,c=Math.round(255*Math.min(1,.55+.6*swirl));
    D[k]=c;D[k+1]=c;D[k+2]=c;D[k+3]=Math.round(255*d)}}
  g.putImageData(img,0,0);const t=new THREE.CanvasTexture(cv);t.minFilter=THREE.LinearMipMapLinearFilter;t.generateMipmaps=true;return t})();
 function mkSmoke(n,lifeK){const P=new Float32Array(n*3),C=new Float32Array(n*3),V=new Float32Array(n*3),Lf=new Float32Array(n),L0=new Float32Array(n),A=new Float32Array(n),S=new Float32Array(n),RO=new Float32Array(n),VA=new Float32Array(n),SP=new Float32Array(n),
   GY=new Float32Array(n),AG=new Float32Array(n),SM=new Float32Array(n),PH=new Float32Array(n),DN=new Float32Array(n).fill(1),g=new THREE.BufferGeometry();
  g.setAttribute('position',new THREE.BufferAttribute(P,3));g.setAttribute('color',new THREE.BufferAttribute(C,3));g.setAttribute('alpha',new THREE.BufferAttribute(A,1));g.setAttribute('psize',new THREE.BufferAttribute(S,1));
  g.setAttribute('rot',new THREE.BufferAttribute(RO,1));g.setAttribute('vari',new THREE.BufferAttribute(VA,1));g.setAttribute('gy',new THREE.BufferAttribute(GY,1));g.setAttribute('age',new THREE.BufferAttribute(AG,1));g.setAttribute('dens',new THREE.BufferAttribute(DN,1));
- const m=new THREE.ShaderMaterial({uniforms:{map:{value:SMOKETX},uScale:{value:innerHeight},uLight:{value:new THREE.Color(1,1,1)},uShade:{value:new THREE.Color(.58,.6,.64)}},transparent:true,depthWrite:false,
+ const m=new THREE.ShaderMaterial({uniforms:{map:{value:SMOKETX},uScale:{value:innerHeight},uLight:{value:new THREE.Color(1,1,1)},uShade:{value:new THREE.Color(.7,.72,.76)}},transparent:true,depthWrite:false,
   vertexShader:'attribute float alpha;attribute float psize;attribute vec3 color;attribute float rot;attribute float vari;attribute float gy;attribute float age;attribute float dens;varying vec3 vC;varying float vA;varying float vR;varying float vV;varying float vH;varying float vSz;varying float vAge;uniform float uScale;'+
    'void main(){vC=color;vA=alpha*dens;vR=rot;vV=vari;vAge=age;vec4 mv=modelViewMatrix*vec4(position,1.);float dz=max(.3,-mv.z);gl_PointSize=psize*uScale/dz;'+
    /* a puff much bigger than its distance would fill the screen: let it go (the fog overlay takes over inside a cloud) */'vA*=smoothstep(.25,.9,dz/max(psize,.1));vH=position.y-gy;vSz=psize;gl_Position=projectionMatrix*mv;}',
   fragmentShader:'uniform sampler2D map;uniform vec3 uLight;uniform vec3 uShade;varying vec3 vC;varying float vA;varying float vR;varying float vV;varying float vH;varying float vSz;varying float vAge;'+
    'void main(){vec2 q=gl_PointCoord-.5;float h=vH+(-q.y)*vSz;'+   /* height of this fragment above the road (billboard faces the camera) */
    'float c=cos(vR),s=sin(vR);vec2 p=vec2(c*q.x-s*q.y,s*q.x+c*q.y)+.5;if(p.x<0.||p.y<0.||p.x>1.||p.y>1.)discard;vec2 cell=vec2(mod(vV,2.),floor(vV/2.));vec4 t=texture2D(map,(p+cell)*.5);'+
-   /* old smoke: the thin parts dissolve first and the cloud breaks into wisps */'float d=smoothstep(vAge*.5,vAge*.5+.35,t.a)*t.a;'+
-   'float a=min(1.,d*vA)*smoothstep(-.05,.35*vSz*.5+.05,h);if(a<.004)discard;float lit=clamp((.62-q.y*.95)*(.7+.45*t.r)+.12*(1.-d),0.,1.);vec3 col=vC*mix(uShade,uLight,lit);gl_FragColor=vec4(col,a);}'});
+   /* old smoke: the thin parts dissolve first and the cloud breaks into wisps */'float d=smoothstep(vAge*.75,vAge*.75+.3,t.a)*t.a;'+
+   'float a=min(1.,d*vA)*smoothstep(-.05,.35*vSz*.5+.05,h);if(a<.004)discard;float lit=clamp((.7-q.y*.7)*(.75+.35*t.r)+.15*(1.-d),0.,1.);vec3 col=vC*mix(uShade,uLight,lit);gl_FragColor=vec4(col,a);}'});
  const setScale=()=>{m.uniforms.uScale.value=innerHeight/(2*Math.tan((typeof cam!=='undefined'?cam.fov:60)*Math.PI/360))};setScale();addEventListener('resize',setScale);
  const pts=new THREE.Points(g,m);pts.frustumCulled=false;pts.renderOrder=2;scene.add(pts);let k=0;for(let i=0;i<n;i++)P[i*3+1]=-999;let fr=0,tt=0;
  const OW=new Int16Array(n).fill(-1);/* which car made each puff (own smoke never fogs that car's own view) */
  return{P,A,S,n,OW,owner:-1,mat:m,emit(x,y,z,vx,vy,vz,life,r,gC,b,big,dn){const i=k=(k+1)%n;DN[i]=dn||1;OW[i]=this.owner;P[i*3]=x;P[i*3+1]=y;P[i*3+2]=z;GY[i]=y-.2;V[i*3]=vx;V[i*3+1]=vy;V[i*3+2]=vz;
    Lf[i]=L0[i]=life*lifeK*(.75+.5*Math.random());C[i*3]=r;C[i*3+1]=gC;C[i*3+2]=b;RO[i]=Math.random()*6.283;VA[i]=Math.floor(Math.random()*4);SP[i]=(Math.random()-.5)*.6;
-   /* final size grows with how much smoke went into it */SM[i]=(big||1)*(1.6+1.6*Math.random());PH[i]=Math.random()*100;S[i]=.5;AG[i]=0},
+   /* final size grows with how much smoke went into it */SM[i]=(big||1)*(1.5+1.7*Math.random());PH[i]=Math.random()*100;S[i]=.5;AG[i]=0},
   update(dt,grav,drag,wx,wz){wx=wx||0;wz=wz||0;fr++;tt+=dt;if((fr&31)===0)setScale();const stir=(fr&1)===0,CA=typeof cars!=='undefined'?cars:[];
    for(let i=0;i<n;i++){if(Lf[i]<=0){if(A[i]>0){A[i]=0;P[i*3+1]=-999}continue}Lf[i]-=dt;const age=1-Lf[i]/L0[i];AG[i]=age;
-    /* thrown back with the wheel, then caught by the air: strong drag at first */const kd=Math.min(1,(2.4-1.6*Math.min(1,age*2))*dt);
+    /* thrown back with the wheel, then caught by the air: strong drag at first */const kd=Math.min(1,(3.4-2.2*Math.min(1,age*2.5))*dt);/* v69: the air catches it within a few tenths of a second */
     /* buoyancy (warm smoke rises a little) and turbulence (a smooth swirling field) */
     const ph=PH[i],x=P[i*3],y=P[i*3+1],z=P[i*3+2];
-    const tx=Math.sin(z*.35+tt*.9+ph)*.9+Math.sin(y*.8+tt*1.7)*.4,ty=.55*(1-age)+Math.sin(x*.3+tt*1.1+ph)*.25,tz=Math.cos(x*.35+tt*.8+ph)*.9+Math.cos(y*.7+tt*1.3)*.4;
+    const ta=.9+2.6*age/* v69: it scatters more the older and thinner it gets */,tx=(Math.sin(z*.45+tt*1.3+ph)*.9+Math.sin(y*1.1+tt*2.3+ph*.7)*.5)*ta,ty=.7*(1-age)+Math.sin(x*.4+tt*1.6+ph)*.35*ta,tz=(Math.cos(x*.45+tt*1.1+ph)*.9+Math.cos(y*.9+tt*1.9+ph*1.3)*.5)*ta;
     V[i*3]+=(wx-V[i*3])*kd+tx*dt;V[i*3+1]+=(-V[i*3+1])*kd+ty*dt;V[i*3+2]+=(wz-V[i*3+2])*kd+tz*dt;
     /* a car driving through drags the smoke along behind it and throws it outwards */
     if(stir)for(const c of CA){if(c.park||c.gone)continue;const dx=x-c.x,dzz=-z-c.y;if(dx>9||dx<-9||dzz>9||dzz<-9)continue;const cs=Math.cos(c.th),sn=Math.sin(c.th),fx=dx*cs+dzz*sn,ly=-dx*sn+dzz*cs;
@@ -3456,7 +3486,7 @@ function mkSmoke(n,lifeK){const P=new Float32Array(n*3),C=new Float32Array(n*3),
       V[i*3]+=(c.vx*cs-c.vy*sn-V[i*3])*k2+(-sn)*out*dt*6;V[i*3+2]+=(-(c.vx*sn+c.vy*cs)-V[i*3+2])*k2+(-cs)*out*dt*6;V[i*3+1]+=.6*dt}}
     for(let a=0;a<3;a++)P[i*3+a]+=V[i*3+a]*dt;if(P[i*3+1]<GY[i]+.05)P[i*3+1]=GY[i]+.05;RO[i]+=SP[i]*dt;
     /* swells fast at first, then slowly; dense at first, then thins out */
-    S[i]=.45+SM[i]*(1-Math.exp(-age*3.6));A[i]=.66*Math.min(1,age*12)*Math.pow(1-age,1.7)}
+    S[i]=.4+SM[i]*(1-Math.exp(-age*4.8));A[i]=.85*Math.min(1,age*16)*Math.pow(1-age,2.2)}
    g.attributes.position.needsUpdate=true;g.attributes.color.needsUpdate=true;g.attributes.alpha.needsUpdate=true;g.attributes.psize.needsUpdate=true;g.attributes.rot.needsUpdate=true;g.attributes.vari.needsUpdate=true;g.attributes.gy.needsUpdate=true;g.attributes.age.needsUpdate=true;g.attributes.dens.needsUpdate=true}}}
 const SMOKE=mkSmoke(HIQ?3000:1500,.55),SPARK=mkParticles(HIQ?600:300,.32,0,true),FRAG=mkParticles(HIQ?400:200,.16,0,false,.95);
 
@@ -4539,47 +4569,53 @@ function gapId(g){const P=COMM.pack;if(!P)return null;let best=null,bd=1e9;for(c
 function lapId(n){return n>=1&&n<=80?'L.lap.'+n:null}
 function togoId(n){return n>=2&&n<=80?'L.togo.'+n:null}
 /* queue a line: ids are played back to back. pri 3 cuts in at once, 2 and 1 wait (and go stale), 0 is talk to fill a quiet moment */
-function commSay(ids,pri,key,cool){if(!COMM.on||!COMM.pack)return false;ids=(ids||[]).filter(Boolean);if(!ids.length)return false;const now=performance.now()/1000;
+/* v69: the voice follows the race. A tone shapes how a line is played: hot (a lead change, a crash, the finish), x (excited), t (tense: a close
+   fight, the last lap), s (sorry: a retirement, a puncture). Excited lines come a touch quicker and higher and louder, sad ones slower and softer.
+   Reactions ("Wow!", "Oh no!", "Here we go!") open the big moments, and the analyst reacts in kind */
+const TONES={hot:{r:1.085,g:1.22},x:{r:1.055,g:1.13},t:{r:1.028,g:1.06},s:{r:.955,g:.86}};
+function rx(kind,p,v){const now=performance.now()/1000;if(Math.random()>(p??1)||now-(COMM.lastReact||-99)<5)return null;const id=gl('react_'+kind,v);if(id)COMM.lastReact=now;return id}
+function commSay(ids,pri,key,cool,tone){if(!COMM.on||!COMM.pack)return false;ids=(ids||[]).filter(Boolean);if(!ids.length)return false;const now=performance.now()/1000;
  if(key){if(now-(COMM.lastKey[key]||-99)<(cool??14))return false;COMM.lastKey[key]=now}
  if(pri>=3){commStop();COMM.q=COMM.q.filter(x=>x.pri>=3)}
- COMM.q.push({ids,pri,t:now});COMM.q.sort((a,b)=>b.pri-a.pri);COMM.q=COMM.q.slice(0,4);commNext();return true}
+ COMM.q.push({ids,pri,t:now,tone});COMM.q.sort((a,b)=>b.pri-a.pri);COMM.q=COMM.q.slice(0,4);commNext();return true}
 function commStop(){const c=COMM.cur;if(!c)return;const A=AU.ctx;for(const s of c.src){try{s.g.gain.setTargetAtTime(0,A.currentTime,.03);s.s.stop(A.currentTime+.12)}catch(e){}}COMM.cur=null;COMM.lastEnd=performance.now()/1000}
 async function commNext(){if(!COMM.on||COMM.cur||!COMM.q.length||COMM.busyDec)return;const A=AU.ctx;if(!A||A.state!=='running')return;const now=performance.now()/1000;
  let it;while((it=COMM.q.shift())&&now-it.t>(it.pri>=3?6:it.pri===2?7:it.pri===1?5:3));if(!it)return;
  COMM.busyDec=true;const bufs=await Promise.all(it.ids.map(clipBuf));COMM.busyDec=false;const ok=bufs.map((b,i)=>[b,it.ids[i]]).filter(x=>x[0]);if(!ok.length){commNext();return}
  const bus=commBus();if(!bus)return;let t=A.currentTime+.05;const src=[];let prevV=null;
- for(const [b,id] of ok){const v=id[0];if(prevV&&prevV!==v)t+=.32;else if(prevV)t+=.06;prevV=v;const s=A.createBufferSource(),g=A.createGain();s.buffer=b;g.gain.value=1;s.connect(g);g.connect(bus.g);s.start(t);src.push({s,g});t+=b.duration}
+ const T=TONES[it.tone]||null;for(const [b,id] of ok){const v=id[0];if(prevV&&prevV!==v)t+=it.tone==='hot'||it.tone==='x'?.22:.32;else if(prevV)t+=.06;prevV=v;const s=A.createBufferSource(),g=A.createGain();s.buffer=b;
+  /* the analyst follows the mood at half strength; a reaction is already lively */const rate=T?1+(T.r-1)*(v==='A'?.5:/react_/.test(id)?.4:1):1;s.playbackRate.value=rate;g.gain.value=T?1+(T.g-1)*(v==='A'?.5:1):1;s.connect(g);g.connect(bus.g);s.start(t);src.push({s,g});t+=b.duration/rate}
  COMM.recent.push(...it.ids);if(COMM.recent.length>90)COMM.recent.splice(0,COMM.recent.length-90);
  const cur={src,end:t,pri:it.pri};COMM.cur=cur;commDuck(true);const ms=Math.max(50,(t-A.currentTime)*1000+40);
  setTimeout(()=>{if(COMM.cur===cur){COMM.cur=null;COMM.lastEnd=performance.now()/1000;if(!COMM.q.length)commDuck(false);setTimeout(commNext,it.pri>=2?220:420)}},ms)}
 /* ---- race control messages ---- */
 function commMsg(text,kind,car){if(!COMM.on||!COMM.pack)return;const T=String(text).toUpperCase();
  if(kind==='rc'){
-  if(/^SAFETY CAR DEPLOYED/.test(T)){commSay([gl('sc')],3);setTimeout(()=>commSay([gl('sc1','A')],1,'sc1',40),2500)}
-  else if(/VIRTUAL SAFETY CAR DEPLOYED|VSC DEPLOYED/.test(T))commSay([gl('vsc')],3);
+  if(/^SAFETY CAR DEPLOYED/.test(T)){commSay([rx('oh',.4),gl('sc')],3,null,null,'x');setTimeout(()=>commSay([gl('sc1','A')],1,'sc1',40),2500)}
+  else if(/VIRTUAL SAFETY CAR DEPLOYED|VSC DEPLOYED/.test(T))commSay([gl('vsc')],3,null,null,'x');
   else if(/SAFETY CAR IN THIS LAP|VSC ENDING/.test(T)){commSay([gl('scin')],2);setTimeout(()=>commSay([gl('sc2','A')],1,'sc2',40),2500)}
-  else if(/^RESTART|GREEN FLAG/.test(T))commSay([gl('restart')],3,'restart',8);
-  else if(/RED FLAG/.test(T))commSay([gl('red')],3);
-  else if(/CHEQUERED FLAG/.test(T)){const w=R.finOrder&&R.finOrder[0];commSay([gl('chequer'),w?dl('win',w):null],3);if(w)setTimeout(()=>commSay([dl('drive',w,'A')||gl('win','A')],2),3500)}
+  else if(/^RESTART|GREEN FLAG/.test(T))commSay([rx('tense',.45),gl('restart')],3,'restart',8,'hot');
+  else if(/RED FLAG/.test(T))commSay([rx('oh',.6),gl('red')],3,null,null,'x');
+  else if(/CHEQUERED FLAG/.test(T)){const w=R.finOrder&&R.finOrder[0];commSay([rx('yes',.8),gl('chequer'),w?dl('win',w):null],3,null,null,'hot');if(w)setTimeout(()=>commSay([dl('drive',w,'A')||gl('win','A')],2,null,null,'x'),3500)}
   else if(/FASTEST LAP/.test(T)&&car){if(R.type==='R')commSay([dl('fl',car)],1,'fl',25)}
   else if(/UNDER INVESTIGATION/.test(T))commSay([gl('stewards')],1,'inv',25);
   else if(/DRIVE.?THROUGH/.test(T)&&car)commSay([nm(car,0),gl('dt')],2,'dt'+car.code,20);
   else if(/SECOND TIME PENALTY|SECOND PENALTY|TIME PENALTY/.test(T)&&car){commSay([dl('pen',car)],2,'pen'+car.code,20);setTimeout(()=>commSay([gl(Math.random()<.5?'pen_fair':'stewards','A')],1,'penA',30),2200)}
   else if(/TRACK LIMITS|WARNING/.test(T)&&car)commSay([nm(car,0),gl('n_warn')],1,'warn',30);
   else if(/DELETED/.test(T))commSay([gl('lapdeleted')],1,'del',30);
-  else if(/– OUT$|- OUT$/.test(T)&&car){commSay([dl('out',car)],3,'out'+car.code,60);setTimeout(()=>commSay([dl('heart',car,'A')],1,'heart',30),3200)}
-  else if(/LIGHTS OUT|AND AWAY/.test(T)){COMM.st.start=simT;commSay([gl('lightsout')],3)}}}
+  else if(/– OUT$|- OUT$/.test(T)&&car){commSay([rx('sad',(car.pos||99)<=8?.7:.35),dl('out',car)],3,'out'+car.code,60,'s');setTimeout(()=>commSay([Math.random()<.4?gl('react_sad','A'):dl('heart',car,'A')],1,'heart',30,'s'),3200)}
+  else if(/LIGHTS OUT|AND AWAY/.test(T)){COMM.st.start=simT;commSay([gl('lightsout')],3,null,null,'hot')}}}
 /* ---- things that happen to cars (the replay's event log feeds these in) ---- */
 function commEvent(kind,c,o){if(!COMM.on||!COMM.pack||!c)return;const p=c.pos||99;
- if(kind==='pass'){if(R.type!=='R'||R.phase!=='run')return;if(p===1){commSay([dl('lead',c)],3,'lead',6);setTimeout(()=>commSay([Math.random()<.5?dl('goodmove',c,'A'):gl('room','A')],1,'leadA',20),2600)}
+ if(kind==='pass'){if(R.type!=='R'||R.phase!=='run')return;if(p===1){commSay([rx('wow',.75),dl('lead',c)],3,'lead',6,'hot');setTimeout(()=>commSay([Math.random()<.45?gl('react_good','A'):Math.random()<.5?dl('goodmove',c,'A'):gl('room','A')],1,'leadA',20,'x'),2600)}
   else if(p<=6){const nc=o&&typeof nextCorner==='function'?nextCorner(c.idx,24):null,side=nc&&Math.abs(c.lt-o.lt)>1.5?(Math.sign(c.lt-o.lt)===nc.dir?'in':'out'):'';
-   commSay([side==='in'?dl('passin',c):side==='out'?dl('passout',c):dl('pass',c),posId(p,true)],2,'pass'+c.code,10);if(Math.random()<.35)setTimeout(()=>commSay([gl(Math.random()<.5?'racing':'room','A')],0,'passA',25),2400)}
-  else if(p<=12)commSay([dl('pass',c),posId(p,true)],1,'passmid',12);
+   commSay([side?rx(p<=3?'wow':'tense',p<=3?.5:.3):null,side==='in'?dl('passin',c):side==='out'?dl('passout',c):dl('pass',c),posId(p,true)],2,'pass'+c.code,10,p<=3?'hot':'x');if(Math.random()<.4)setTimeout(()=>commSay([gl(Math.random()<.4?'react_good':Math.random()<.5?'racing':'room','A')],0,'passA',25,'x'),2400)}
+  else if(p<=12)commSay([dl('pass',c),posId(p,true)],1,'passmid',12,'t');
   else commSay([gl('pass_generic')],1,'passlow',25)}
- else if(kind==='crash'){commSay([dl('crash',c)],3,'crash'+c.code,20);setTimeout(()=>commSay([gl('crash','A')],1,'crashA',25),3000)}
- else if(kind==='contact'){commSay([gl('contact'),nm(c,1),o?nm(o,0):null],2,'cont',10);setTimeout(()=>commSay([gl(Math.random()<.5?'racing':'blame','A')],1,'contA',20),2600)}
- else if(kind==='spin'){commSay([dl('spin',c)],p<=10?3:2,'spin'+c.code,20);if(Math.random()<.5)setTimeout(()=>commSay([dl('mistake',c,'A')||gl('mistake','A')],1,'spinA',20),2800)}
- else if(kind==='lock')commSay([nm(c,1),gl('n_lock')],1,'lock',25);
+ else if(kind==='crash'){commSay([rx('oh',.85),dl('crash',c)],3,'crash'+c.code,20,'hot');setTimeout(()=>commSay([gl(Math.random()<.5?'react_bad':'crash','A')],1,'crashA',25,'s'),3000)}
+ else if(kind==='contact'){commSay([rx('oh',.5),gl('contact'),nm(c,1),o?nm(o,0):null],2,'cont',10,'x');setTimeout(()=>commSay([gl(Math.random()<.35?'react_close':Math.random()<.5?'racing':'blame','A')],1,'contA',20,'t'),2600)}
+ else if(kind==='spin'){commSay([rx('oh',p<=10?.65:.3),dl('spin',c)],p<=10?3:2,'spin'+c.code,20,p<=10?'hot':'x');if(Math.random()<.5)setTimeout(()=>commSay([Math.random()<.35?gl('react_bad','A'):dl('mistake',c,'A')||gl('mistake','A')],1,'spinA',20,'s'),2800)}
+ else if(kind==='lock')commSay([nm(c,1),gl('n_lock')],1,'lock',25,'t');
  else if(kind==='pit'){if(R.type!=='R')return;commSay([dl('pit',c)],p<=6?2:1,'pit'+c.code,30)}}
 /* ---- watching the race: the commentators' own eyes ---- */
 function commFrame(dt){if(!COMM.on)return;if(!COMM.pack){if(!COMM.loading&&!COMM.failed)commLoad();return}commNext();
@@ -4593,17 +4629,17 @@ function commFrame(dt){if(!COMM.on)return;if(!COMM.pack){if(!COMM.loading&&!COMM
     if(g.length&&g[0][1]>=3)commSay([dl('start',g[0][0])],1,'start');const bad=g[g.length-1];if(bad&&bad[1]<=-3)setTimeout(()=>commSay([nm(bad[0],1),gl('n_badstart')],1,'bad'),2600)}
    /* each new lap for the leader: the lap number now and then, the last few laps always */
    const lap=ld.lapsDone;if(lap!==S.lap){const first=S.lap<0;S.lap=lap;const togo=R.laps-lap+1;
-    if(!first&&!R.chq){if(togo===1)commSay([gl('lastlap'),dl('leads',ld)],2,'lastlap',30);
+    if(!first&&!R.chq){if(togo===1)commSay([Math.random()<.5?gl('react_final'):gl('lastlap'),dl('leads',ld)],2,'lastlap',30,'t');
      else if(togo<=5||togo===10||lap===Math.round(R.laps/2))commSay([togo===Math.ceil(R.laps/2)?gl('halfway'):togoId(togo),dl('leads',ld)],1,'lapc',20);
      else if(lap%5===0)commSay([lapId(lap),dl('leads',ld)],0,'lapc',20)}}
    /* a new leader without a pass on the road (pit stops) */
-   if(S.leader&&S.leader!==ld&&!R.slow)commSay([dl('lead',ld)],2,'newlead',8);S.leader=ld;
+   if(S.leader&&S.leader!==ld&&!R.slow)commSay([dl('lead',ld)],2,'newlead',8,'x');S.leader=ld;
    /* pit stops: the time stationary */
    for(const c of cars){if(c.pitPh===2&&!S.pitT[c.code])S.pitT[c.code]=simT;else if(c.pitPh===3&&S.pitT[c.code]>0){const t=simT-S.pitT[c.code];S.pitT[c.code]=-1;
      if((c.pos||99)<=10&&t>1.6&&t<5.2)commSay([nm(c,0),'L.stop.'+(Math.round(t*10)/10).toFixed(1).replace(/\.0$/,'')],1,'stop',12);else if(t>=5.2&&(c.pos||99)<=14)commSay([nm(c,1),gl('n_stopslow')],1,'stopslow',20)}
      else if(!c.pitPh)S.pitT[c.code]=0;
     /* trouble: a puncture or damage sending a car limping back */
-    if(c.dmgSlow&&!S.dmg[c.code]&&!c.out){S.dmg[c.code]=1;commSay([c.punct&&c.punct.some(x=>x)?dl('punct',c):dl('problem',c)],(c.pos||99)<=8?3:2,'dmg'+c.code,30)}else if(!c.dmgSlow)S.dmg[c.code]=0}
+    if(c.dmgSlow&&!S.dmg[c.code]&&!c.out){S.dmg[c.code]=1;commSay([(c.pos||99)<=6?rx('oh',.5):null,c.punct&&c.punct.some(x=>x)?dl('punct',c):dl('problem',c)],(c.pos||99)<=8?3:2,'dmg'+c.code,30,'s')}else if(!c.dmgSlow)S.dmg[c.code]=0}
    commFill()}}
  else if(R.type&&R.type[0]==='Q'||R.type==='P'){commFill()}}
 function commSessionStart(){const tr=CFG.track|0;if(R.type==='R'){commSay(['L.trk.'+tr+'.0'],1);setTimeout(()=>commSay(['A.trk.'+tr+'.'+Math.floor(Math.random()*3)],0),4200)}
@@ -4617,8 +4653,8 @@ function commFill(){const now=performance.now()/1000;if(COMM.cur||COMM.q.length|
  /* look for something worth talking about, in the order a commentator would */
  const run=L.filter(c=>!c.out&&!c.pitPh&&!c.fin);let bat=null;for(let i=1;i<Math.min(run.length,12);i++){const a=run[i-1],b=run[i];const g=gapOf(b,a);if(g!=null&&g<.9){bat=[a,b,i];break}}
  const r=Math.random();
- if(bat&&r<.4&&!R.slow){const [a,b,i]=bat;COMM.st.battle=b;commSay([gl('battle'),dl('close',b)||nm(b,1)],0,'battle',12);
-  setTimeout(()=>commSay([Math.random()<.5?gl('drs','A'):gl('ot','A')],0,'batA',18),2600);return}
+ if(bat&&r<.4&&!R.slow){const [a,b,i]=bat,g=gapOf(b,a);COMM.st.battle=b;commSay([g<.4?rx('tense',.35):null,gl('battle'),dl('close',b)||nm(b,1)],0,'battle',12,i<=3||g<.4?'t':null);
+  setTimeout(()=>commSay([Math.random()<.25?gl('react_tense','A'):Math.random()<.5?gl('drs','A'):gl('ot','A')],0,'batA',18,'t'),2600);return}
  if(r<.58){const g2=run[1]?gapOf(run[1],run[0]):null;if(g2!=null&&g2>.2&&g2<31){commSay([gl('gap_lead'),gapId(g2)],0,'gap',25);if(Math.random()<.5)setTimeout(()=>commSay([gl('gap','A')],0,'gapA',20),2400);return}}
  if(r<.72){const c=CPICK(run.slice(0,10));if(c&&c.tw&&Math.max(c.tw[0],c.tw[1])>.45)commSay([dl('tyres',c,'A')||gl('tyres1','A')],0,'tyA',25);else commSay([gl(CPICK(['tyres1','tyres2','tyres3','deg']),'A')],0,'tyB',20);return}
  if(r<.82){commSay([gl(CPICK(['strat1','strat2','strat3','pace1','pace2','fuel','ers']),'A')],0,'strat',18);return}
@@ -5027,8 +5063,8 @@ function updCar(c,v,dt){const g=v.g;SMOKE.owner=c.k;g.visible=!c.gone&&!c._lcHid
      /* thrown out behind the tyre at a fraction of the road speed, from the outside of the contact patch */const fv=Math.hypot(c.vx,c.vy),kk=.35+.25*Math.random(),sdz=lz>0?1:-1;
      while(m-->0){const jx=(Math.random()-.5)*.5,jz=sdz*Math.random()*.25;SMOKE.emit(x+cs*jx+sn*jz,z+.22,-(y+sn*jx-cs*jz),c.vx*cs*kk-c.vy*sn*kk+(Math.random()-.5)*1.2,.4+Math.random()*.6,-(c.vx*sn*kk+c.vy*cs*kk)+(Math.random()-.5)*1.2,life,col*(blu?.95:1),col*(blu?.97:1),col*1.02,(big||1)*(1+.15*Math.min(4,k)),dn)}};
    const f=Math.min(1,dt*60),ay=c.ay||0,inside=ay>0?0:1,ws=c.wspin||0;
-   if(ws>.12){const dif=((c.setup||SETUP0).x||0),bias=Math.abs(ay)>8?(.5-.35*(1-(dif+1)/2)):0;puff(2+inside,f*ws*(1.6+bias*2),.95,3.4,1.25,1.3,1);puff(3-inside,f*ws*(1.6-bias*2),.95,3.4,1.25,1.3,1)}
-   /* lock-up smoke: clearly visible, but a flat-spotting front tyre makes a plume, not a wall */if(c.lock){const lk=Math.min(1,sp/25);/* v68: a locked tyre makes a proper blue-white puff */if(Math.abs(ay)<6){puff(0,f*2.6*lk,.99,3.2,1.9,1.6,1);puff(1,f*2.6*lk,.99,3.2,1.9,1.6,1)}else puff(inside,f*3.4*lk,.99,3.2,2,1.6,1)}
+   if(ws>.12){const dif=((c.setup||SETUP0).x||0),bias=Math.abs(ay)>8?(.5-.35*(1-(dif+1)/2)):0;puff(2+inside,f*ws*(1.6+bias*2),.96,3.1,1.35,1.4,1);puff(3-inside,f*ws*(1.6-bias*2),.96,3.1,1.35,1.4,1)}
+   /* lock-up smoke: clearly visible, but a flat-spotting front tyre makes a plume, not a wall */if(c.lock){const lk=Math.min(1,sp/25);/* v68: a locked tyre makes a proper blue-white puff */if(Math.abs(ay)<6){puff(0,f*2.6*lk,.99,2.2,1.6,1.6,1);puff(1,f*2.6*lk,.99,2.2,1.6,1.6,1)}else puff(inside,f*3.4*lk,.99,2.2,1.7,1.6,1)}
    const sr=Math.abs(c.ar)-.16,sf=Math.abs(c.af)-.2;if(sr>0){const k=f*Math.min(2.6,sr*16);puff(2,k*.7,.9,1.6);puff(3,k*.7,.9,1.6)}if(sf>0&&sp>15){const k=f*Math.min(1.2,sf*8);puff(inside,k*.7,.88,1.2)}
    if(c.bt>820&&near){const k=f*Math.min(.6,(c.bt-820)/450)*(sp<25?1.4:.6);for(let w=0;w<4;w++)puff(w,k*(w<2?1:.6),.62,1.1)}}
   if((c.sL===3||c.sR===3))em(RA,0,2,.78,.66,.48,1.4);else if(c.sL===2&&c.sR===2&&Math.random()<.4)em(RA,0,1,.55,.45,.3,.9);
@@ -5277,7 +5313,7 @@ function settingsHTML(){const b=(k,t)=>`<button data-k="${k}">${t}</button>`,sec
   h+=sec('Car set-up')+`<div class="srow sdesc" style="color:${lk==='parc'?'#ffb000':'#9fd8ff'}">${lk==='parc'?'Parc fermé: the set-up is locked from qualifying on, as in F1. Brake bias and diff can still be changed from the steering wheel (also the on-screen BB / DIFF buttons), and the front wing angle at a pit stop.':lk==='stop'?'On track: changes are fitted by your mechanics at your next pit stop (press BOX). In the garage they are fitted straight away.':'In the garage: changes are fitted straight away. Brake bias and diff can also be changed on track.'}</div>`;
   if(lk==='parc')h+=`<div class="srow"><label>Front wing at next stop<b id="fwn">${PLAYER.fwNext>0?'+':''}${PLAYER.fwNext||0} click${Math.abs(PLAYER.fwNext||0)===1?'':'s'}</b></label><div style="display:flex;gap:6px"><button data-k="fw_m" style="flex:1">− less wing</button><button data-k="fw_p" style="flex:1">+ more wing</button></div><div class="sdesc">More front wing: sharper turn-in and less understeer, a touch more drag. Fitted at your next stop.</div></div>`;
   for(const k of ['w','b','r','s','af','ar','c','k','a','x','bb','d','g']){const live=k==='bb'||k==='x',off=lk==='parc'&&!live,pd=!live&&lk==='stop'&&pend[k]!=null,v=pd?pend[k]:(su[k]||0),pct=Math.round(50+v*50);h+=`<div class="srow"${off?' style="opacity:.45"':''}><label>${lab[k][0]}${live?' <span style="color:#30d158;font-size:9px">LIVE</span>':''}<b id="sv_${k}">${pct}%${pd?' → next stop':''}</b></label><input type="range" min="0" max="100" step="5" value="${pct}" data-su="${k}"${off?' disabled':''}><div class="ends"><span>${lab[k][1]}</span><span>${lab[k][2]}</span></div><div class="sdesc">${SU_DESC[k]||""}</div></div>`}}
- h+=sec('Session · game v68')+(R.type==='R'&&!RPL.on&&!LC.on&&HL.clips.length+HL.pend.length?b('hl','🎬 Race highlights ('+(HL.clips.length+HL.pend.length)+' moments so far)'):'')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
+ h+=sec('Session · game v69')+(R.type==='R'&&!RPL.on&&!LC.on&&HL.clips.length+HL.pend.length?b('hl','🎬 Race highlights ('+(HL.clips.length+HL.pend.length)+' moments so far)'):'')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
 function settingsAct(k){{const ca=ctlAct(k);if(ca==='closed')return;if(ca){$('sheet').innerHTML=settingsHTML();return}}if(k==='look'){lookApply(!LOOK.on);try{localStorage.setItem('glgp_look',LOOK.on?'enhanced':'classic')}catch(e){}}if(k==='shadows'){const on=!renderer.shadowMap.enabled;renderer.shadowMap.enabled=on;sun.castShadow=on;scene.traverse(o=>{if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true)}})}
  if(k==='res'){/* Auto -> 100% -> 85% -> 67% -> 50% -> Auto; a fixed choice switches the automatic scaler off so it can't undo it, and is remembered */const steps=['auto',1,.85,.67,.5],i=steps.indexOf(PERF.auto?'auto':PERF.fix);resSet(steps[(i+1)%steps.length]);try{localStorage.setItem('glgp_res',String(PERF.auto?'auto':PERF.fix))}catch(e){}}
  if(k==='shake')CAM.shakeOn=!CAM.shakeOn;if(k==='mirror')SET.mirror=!SET.mirror;if(k==='refl')SET.refl=!SET.refl&&!!CUBECAM;if(k==='fps'){SET.fps=!SET.fps;$('fps').style.display=SET.fps?'block':'none'}
@@ -5448,7 +5484,7 @@ return {ev:x=>eval(x)};
  const SCN_FILES={7:{url:'montreal-model.bin',txt:'montreal-model.txt',mb:9}};
  const real=p=>{const m=Math.floor(p/60);return m+':'+(p-60*m).toFixed(1).padStart(4,'0')};
  const grp=(lab,key,items)=>`<div class="grp"><label>${lab}</label><div class="opts">${items.map(([v,t,s])=>`<button data-key="${key}" data-v="${v}" class="${S[key]==v?'sel':''}">${t}${s?`<small>${s}</small>`:''}</button>`).join('')}</div></div>`;
- function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v68</b></div>`+
+ function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v69</b></div>`+
   grp('CIRCUIT','track',TRACKS.map((t,i)=>[i,t.name,t.km.toFixed(2)+' km · '+t.climb+' m elevation · real pole ≈ '+real(t.pole)]))+
   grp('WEEKEND','format',[['full','Full weekend','Practice → Q1/Q2/Q3 → Race'],['qr','Qualifying + race',''],['r','Race only','']])+
   grp('RACE LENGTH','laps',[[5,'5 laps'],[10,'10 laps'],[20,'20 laps'],[30,'30 laps'],['h','Half distance',Math.ceil(FULL(S.track)/2)+' laps'],['f','Full distance',FULL(S.track)+' laps · 305 km']])+
