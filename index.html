@@ -3432,11 +3432,12 @@ function mkParticles(n,size,col,additive,opac){const P=new Float32Array(n*3),C=n
    angle that keeps slowly rolling, stretched a little, growing and thinning out as it drifts. A camera that ends up inside a
    thick cloud gets a whited-out, foggy view (see smokeFog) */
 /* ---------- tyre smoke ----------
-   Each puff is a soft billboard cut from fractal noise (no two the same shape, no hard outline). The texture carries both the
-   density and its own lighting (lit on the sun side, darker in its core and underneath), so a cloud of puffs reads as a volume.
-   Puffs are born small and dense at the contact patch, are flung back with the wheel, then slow into the air, rise a little,
-   swell to several metres, drift with the wind and are stirred by passing cars. They do not fade evenly: thin parts of the
-   cloud dissolve first, so it breaks up into wisps. Where a puff meets the road it fades softly instead of cutting a hard line */
+   v69.1: smoke comes out of the tyre itself. Each puff is born small and dense at the contact patch (emitted at a steady rate and spread
+   evenly along the path the wheel took since the last frame, so the stream never breaks into dots at speed), is flung out with the wheel,
+   then the air catches it: it billows out to a couple of metres, rises a little, drifts downwind and is stirred by passing cars, thins and
+   breaks up into wisps, and is gone in under a second. Each puff is a soft ball of smoke: two layers of noise turn against each other inside
+   it and open out as it grows, so the smoke churns instead of sitting still, and it is lit like a volume (bright on the sky side, darker
+   underneath and in its dense core). Where a puff meets the road it fades softly instead of cutting a hard line */
 const SMOKETX=(()=>{const S=512,H=256,cv=document.createElement('canvas');cv.width=cv.height=S;const g=cv.getContext('2d'),img=g.createImageData(S,S),D=img.data;
  let sd=11;const rnd=()=>{sd=(sd*16807)%2147483647;return sd/2147483647};
  const G=64,grid=new Float32Array(G*G);for(let i=0;i<G*G;i++)grid[i]=rnd();
@@ -3454,8 +3455,8 @@ const SMOKETX=(()=>{const S=512,H=256,cv=document.createElement('canvas');cv.wid
    const d=Math.min(1,core*(.55+.85*streak)*(.8+.3*fine)*1.1),k=((oy+y)*S+ox+x)*4,c=Math.round(255*Math.min(1,.55+.6*swirl));
    D[k]=c;D[k+1]=c;D[k+2]=c;D[k+3]=Math.round(255*d)}}
  g.putImageData(img,0,0);const t=new THREE.CanvasTexture(cv);t.minFilter=THREE.LinearMipMapLinearFilter;t.generateMipmaps=true;return t})();
-function mkSmoke(n,lifeK){const P=new Float32Array(n*3),C=new Float32Array(n*3),V=new Float32Array(n*3),Lf=new Float32Array(n),L0=new Float32Array(n),A=new Float32Array(n),S=new Float32Array(n),RO=new Float32Array(n),VA=new Float32Array(n),SP=new Float32Array(n),
-  GY=new Float32Array(n),AG=new Float32Array(n),SM=new Float32Array(n),PH=new Float32Array(n),DN=new Float32Array(n).fill(1),g=new THREE.BufferGeometry();
+function mkSmoke(n){const P=new Float32Array(n*3),C=new Float32Array(n*3),V=new Float32Array(n*3),Lf=new Float32Array(n),L0=new Float32Array(n),A=new Float32Array(n),S=new Float32Array(n),RO=new Float32Array(n),VA=new Float32Array(n),SP=new Float32Array(n),
+  GY=new Float32Array(n),AG=new Float32Array(n),SM=new Float32Array(n),PH=new Float32Array(n),DN=new Float32Array(n).fill(1),S0=new Float32Array(n),BU=new Float32Array(n),g=new THREE.BufferGeometry();
  g.setAttribute('position',new THREE.BufferAttribute(P,3));g.setAttribute('color',new THREE.BufferAttribute(C,3));g.setAttribute('alpha',new THREE.BufferAttribute(A,1));g.setAttribute('psize',new THREE.BufferAttribute(S,1));
  g.setAttribute('rot',new THREE.BufferAttribute(RO,1));g.setAttribute('vari',new THREE.BufferAttribute(VA,1));g.setAttribute('gy',new THREE.BufferAttribute(GY,1));g.setAttribute('age',new THREE.BufferAttribute(AG,1));g.setAttribute('dens',new THREE.BufferAttribute(DN,1));
  const m=new THREE.ShaderMaterial({uniforms:{map:{value:SMOKETX},uScale:{value:innerHeight},uLight:{value:new THREE.Color(1,1,1)},uShade:{value:new THREE.Color(.7,.72,.76)}},transparent:true,depthWrite:false,
@@ -3463,32 +3464,47 @@ function mkSmoke(n,lifeK){const P=new Float32Array(n*3),C=new Float32Array(n*3),
    'void main(){vC=color;vA=alpha*dens;vR=rot;vV=vari;vAge=age;vec4 mv=modelViewMatrix*vec4(position,1.);float dz=max(.3,-mv.z);gl_PointSize=psize*uScale/dz;'+
    /* a puff much bigger than its distance would fill the screen: let it go (the fog overlay takes over inside a cloud) */'vA*=smoothstep(.25,.9,dz/max(psize,.1));vH=position.y-gy;vSz=psize;gl_Position=projectionMatrix*mv;}',
   fragmentShader:'uniform sampler2D map;uniform vec3 uLight;uniform vec3 uShade;varying vec3 vC;varying float vA;varying float vR;varying float vV;varying float vH;varying float vSz;varying float vAge;'+
-   'void main(){vec2 q=gl_PointCoord-.5;float h=vH+(-q.y)*vSz;'+   /* height of this fragment above the road (billboard faces the camera) */
-   'float c=cos(vR),s=sin(vR);vec2 p=vec2(c*q.x-s*q.y,s*q.x+c*q.y)+.5;if(p.x<0.||p.y<0.||p.x>1.||p.y>1.)discard;vec2 cell=vec2(mod(vV,2.),floor(vV/2.));vec4 t=texture2D(map,(p+cell)*.5);'+
-   /* old smoke: the thin parts dissolve first and the cloud breaks into wisps */'float d=smoothstep(vAge*.75,vAge*.75+.3,t.a)*t.a;'+
-   'float a=min(1.,d*vA)*smoothstep(-.05,.35*vSz*.5+.05,h);if(a<.004)discard;float lit=clamp((.7-q.y*.7)*(.75+.35*t.r)+.15*(1.-d),0.,1.);vec3 col=vC*mix(uShade,uLight,lit);gl_FragColor=vec4(col,a);}'});
+   'void main(){vec2 q=gl_PointCoord-.5;float r2=dot(q,q)*4.;if(r2>1.)discard;float h=vH+(-q.y)*vSz;'+   /* height of this fragment above the road (billboard faces the camera) */
+   /* v69.1: inside each puff two layers of the noise turn against each other and open out as the puff grows: the smoke churns and billows instead of sitting still */
+   'float a1=vR+vAge*1.9,a2=-.7*vR-vAge*2.6,z1=1./(1.+.55*vAge),z2=.62/(1.+.35*vAge);'+
+   'vec2 p1=vec2(cos(a1)*q.x-sin(a1)*q.y,sin(a1)*q.x+cos(a1)*q.y)*z1+.5,p2=vec2(cos(a2)*q.x-sin(a2)*q.y,sin(a2)*q.x+cos(a2)*q.y)*z2+.5;'+
+   'vec2 c1=vec2(mod(vV,2.),floor(vV/2.)),c2=vec2(1.)-c1;vec4 t1=texture2D(map,(p1+c1)*.5),t2=texture2D(map,(p2+c2)*.5);'+
+   /* a round soft body (a ball of smoke, not a flat card), its density carried by the two noise layers */
+   'float body=1.-smoothstep(0.,1.,r2),den=body*clamp((.9*t1.a+.65*t2.a-.3)*1.35,0.,1.);'+
+   /* as it spreads out, the thin parts go first and it breaks up into wisps */'den=smoothstep(vAge*.45,vAge*.45+.3,den)*den;'+
+   'float a=min(1.,den*vA)*smoothstep(-.05,.35*vSz*.5+.05,h);if(a<.004)discard;'+
+   /* lit as a volume: the side towards the sky bright, underneath and the dense core darker */
+   'vec3 nn=vec3(q.x*2.,-q.y*2.,sqrt(max(0.,1.-r2)));float lit=clamp((.5+.5*dot(nn,vec3(.28,.82,.5)))*(.75+.35*t1.r)+.12-.2*den,0.,1.);lit=lit*lit*(3.-2.*lit);'+
+   'vec3 col=vC*mix(uShade*.88,uLight*1.04,lit)*(.94+.04*mod(vV,2.));gl_FragColor=vec4(col,a);}'});
  const setScale=()=>{m.uniforms.uScale.value=innerHeight/(2*Math.tan((typeof cam!=='undefined'?cam.fov:60)*Math.PI/360))};setScale();addEventListener('resize',setScale);
- const pts=new THREE.Points(g,m);pts.frustumCulled=false;pts.renderOrder=2;scene.add(pts);let k=0;for(let i=0;i<n;i++)P[i*3+1]=-999;let fr=0,tt=0;
+ const pts=new THREE.Points(g,m);pts.frustumCulled=false;pts.renderOrder=2;scene.add(pts);let k=0,seq=0;for(let i=0;i<n;i++)P[i*3+1]=-999;let fr=0,tt=0;
  const OW=new Int16Array(n).fill(-1);/* which car made each puff (own smoke never fogs that car's own view) */
- return{P,A,S,n,OW,owner:-1,mat:m,emit(x,y,z,vx,vy,vz,life,r,gC,b,big,dn){const i=k=(k+1)%n;DN[i]=dn||1;OW[i]=this.owner;P[i*3]=x;P[i*3+1]=y;P[i*3+2]=z;GY[i]=y-.2;V[i*3]=vx;V[i*3+1]=vy;V[i*3+2]=vz;
-   Lf[i]=L0[i]=life*lifeK*(.75+.5*Math.random());C[i*3]=r;C[i*3+1]=gC;C[i*3+2]=b;RO[i]=Math.random()*6.283;VA[i]=Math.floor(Math.random()*4);SP[i]=(Math.random()-.5)*.6;
-   /* final size grows with how much smoke went into it */SM[i]=(big||1)*(1.5+1.7*Math.random());PH[i]=Math.random()*100;S[i]=.5;AG[i]=0},
+ /* v69.1: no dice: each puff's turn, shape and spin come from an even sequence, so the stream looks alike from one puff to the next */
+ const GR=.6180339887;
+ return{P,A,S,n,OW,owner:-1,mat:m,
+  /* pre: seconds the puff has already lived when it is emitted (puffs spread along the path the wheel took during the last frame) */
+  emit(x,y,z,vx,vy,vz,life,r,gC,b,big,dn,pre,s0){const i=k=(k+1)%n;seq++;const u1=(seq*GR)%1,u2=(seq*.7548776662)%1,u3=(seq*.5698402910)%1;
+   DN[i]=dn||1;OW[i]=this.owner;GY[i]=y-.2;V[i*3]=vx;V[i*3+1]=vy*(.55+.9*u2);V[i*3+2]=vz;/* some puffs rise more than others: the plume is not a flat band */BU[i]=.45+1.1*((seq*.3819660113)%1);
+   /* every puff is gone in under a second */Lf[i]=L0[i]=Math.min(.95,life);C[i*3]=r;C[i*3+1]=gC;C[i*3+2]=b;RO[i]=u1*6.283;VA[i]=Math.floor(u2*4);SP[i]=(u3-.5)*1.2;
+   /* final size grows with how much smoke went into it */SM[i]=(big||1)*(1.7+.7*u3);S0[i]=s0||.42;PH[i]=u1*100;AG[i]=0;S[i]=S0[i];A[i]=0;
+   const t0=Math.max(0,Math.min(pre||0,.1));P[i*3]=x+vx*t0;P[i*3+1]=y+V[i*3+1]*t0;P[i*3+2]=z+vz*t0;Lf[i]-=t0},
   update(dt,grav,drag,wx,wz){wx=wx||0;wz=wz||0;fr++;tt+=dt;if((fr&31)===0)setScale();const stir=(fr&1)===0,CA=typeof cars!=='undefined'?cars:[];
-   for(let i=0;i<n;i++){if(Lf[i]<=0){if(A[i]>0){A[i]=0;P[i*3+1]=-999}continue}Lf[i]-=dt;const age=1-Lf[i]/L0[i];AG[i]=age;
-    /* thrown back with the wheel, then caught by the air: strong drag at first */const kd=Math.min(1,(3.4-2.2*Math.min(1,age*2.5))*dt);/* v69: the air catches it within a few tenths of a second */
-    /* buoyancy (warm smoke rises a little) and turbulence (a smooth swirling field) */
+   for(let i=0;i<n;i++){if(Lf[i]<=0){if(A[i]>0){A[i]=0;P[i*3+1]=-999}continue}Lf[i]-=dt;const t=L0[i]-Lf[i],age=Math.min(1,t/L0[i]);AG[i]=age;
+    /* thrown out with the wheel, then caught by the air: very strong drag in the first quarter of a second */const kd=Math.min(1,(4.4-2.8*Math.min(1,t*4))*dt);
+    /* buoyancy (warm smoke rises a little) and turbulence (a smooth swirling field) that grows as it spreads out */
     const ph=PH[i],x=P[i*3],y=P[i*3+1],z=P[i*3+2];
-    const ta=.9+2.6*age/* v69: it scatters more the older and thinner it gets */,tx=(Math.sin(z*.45+tt*1.3+ph)*.9+Math.sin(y*1.1+tt*2.3+ph*.7)*.5)*ta,ty=.7*(1-age)+Math.sin(x*.4+tt*1.6+ph)*.35*ta,tz=(Math.cos(x*.45+tt*1.1+ph)*.9+Math.cos(y*.9+tt*1.9+ph*1.3)*.5)*ta;
+    const ta=.7+3.4*age,tx=(Math.sin(z*.45+tt*1.3+ph)*.9+Math.sin(y*1.1+tt*2.3+ph*.7)*.5)*ta,ty=.9*BU[i]*(1-age)+Math.sin(x*.4+tt*1.6+ph)*.35*ta,tz=(Math.cos(x*.45+tt*1.1+ph)*.9+Math.cos(y*.9+tt*1.9+ph*1.3)*.5)*ta;
     V[i*3]+=(wx-V[i*3])*kd+tx*dt;V[i*3+1]+=(-V[i*3+1])*kd+ty*dt;V[i*3+2]+=(wz-V[i*3+2])*kd+tz*dt;
     /* a car driving through drags the smoke along behind it and throws it outwards */
     if(stir)for(const c of CA){if(c.park||c.gone)continue;const dx=x-c.x,dzz=-z-c.y;if(dx>9||dx<-9||dzz>9||dzz<-9)continue;const cs=Math.cos(c.th),sn=Math.sin(c.th),fx=dx*cs+dzz*sn,ly=-dx*sn+dzz*cs;
      if(fx<2.6&&fx>-9&&Math.abs(ly)<1.6+S[i]*.25){const v=Math.hypot(c.vx,c.vy);if(v<4)continue;const k2=Math.min(1,dt*2*(1+fx/9))*.55,out=Math.sign(ly||1)*v*.08;
       V[i*3]+=(c.vx*cs-c.vy*sn-V[i*3])*k2+(-sn)*out*dt*6;V[i*3+2]+=(-(c.vx*sn+c.vy*cs)-V[i*3+2])*k2+(-cs)*out*dt*6;V[i*3+1]+=.6*dt}}
     for(let a=0;a<3;a++)P[i*3+a]+=V[i*3+a]*dt;if(P[i*3+1]<GY[i]+.05)P[i*3+1]=GY[i]+.05;RO[i]+=SP[i]*dt;
-    /* swells fast at first, then slowly; dense at first, then thins out */
-    S[i]=.4+SM[i]*(1-Math.exp(-age*4.8));A[i]=.85*Math.min(1,age*16)*Math.pow(1-age,2.2)}
+    /* v69.1: born small at the tyre and billowing out (fast at first, then slower); it fades in over a few hundredths of a second (no pop)
+       and thins out smoothly to nothing as it spreads */
+    S[i]=S0[i]+SM[i]*(1-Math.exp(-t*4.4));const fi=Math.min(1,t/.1);A[i]=.88*fi*fi*(3-2*fi)*Math.pow(1-age,1.55)}
    g.attributes.position.needsUpdate=true;g.attributes.color.needsUpdate=true;g.attributes.alpha.needsUpdate=true;g.attributes.psize.needsUpdate=true;g.attributes.rot.needsUpdate=true;g.attributes.vari.needsUpdate=true;g.attributes.gy.needsUpdate=true;g.attributes.age.needsUpdate=true;g.attributes.dens.needsUpdate=true}}}
-const SMOKE=mkSmoke(HIQ?3000:1500,.55),SPARK=mkParticles(HIQ?600:300,.32,0,true),FRAG=mkParticles(HIQ?400:200,.16,0,false,.95);
+const SMOKE=mkSmoke(HIQ?3000:1500),SPARK=mkParticles(HIQ?600:300,.32,0,true),FRAG=mkParticles(HIQ?400:200,.16,0,false,.95);
 
 GEN='world';
 /* ===================== detailed scenery (High): grandstands, structures and trees for one circuit, read from a prepared file =====================
@@ -5055,21 +5071,38 @@ function updCar(c,v,dt){const g=v.g;SMOKE.owner=c.k;g.visible=!c.gone&&!c._lcHid
  if(det&&!v.model){/* helmet looks into the corner and leans with g; forearms follow the wheel */
   const hy=c.st*.35+(c===VIEW.car?0:0),hz=-c.ay*.0035;v.hm.rotation.set(hz,hy,0);v.vs.rotation.set(hz,Math.PI*1.5+hy,0);
   v.sw.updateMatrix();for(const a of v.arms){_wv.set(-.025,-.015,a.sd*.205).applyMatrix4(v.sw.matrix);_wv2.set(.22,.58,a.sd*.21);const d=_wv3.copy(_wv).sub(_wv2),L=d.length();a.m.position.copy(_wv2);a.m.quaternion.setFromUnitVectors(_up,d.normalize());a.m.scale.set(1,L,1)}}
- if(c.smoke>0&&sp<=6&&!c.park&&!c.gone){c.smoke-=dt;/* stopped with a blown engine: the smoke rises from the back of the car */const cs=Math.cos(c.th),sn=Math.sin(c.th);if(Math.random()<.7)SMOKE.emit(c.x+cs*(RA-.5),z+.7,-(c.y+sn*(RA-.5)),(Math.random()-.5)*.8,1.6+Math.random(),(Math.random()-.5)*.8,4.5,.8,.8,.82,2,1.3*Math.min(1,c.smoke/3)+.3)}
+ /* v69.1: smoke comes out of the source itself, at a steady rate (no dice): a stream from the contact patch of the wheel that is doing it
+    (spinning rears, a locked front, a sliding axle; brake haze from very hot discs), spread evenly along the path the wheel took since the
+    last frame, so it grows out of the tyre as one continuous plume even at speed. Each puff is gone in under a second (see mkSmoke) */
+ const smDt=dt*SMTK,smCS=Math.cos(c.th),smSN=Math.sin(c.th),smVX=c.vx*smCS-c.vy*smSN,smVY=c.vx*smSN+c.vy*smCS,smLOD=camD<70?1:camD<160?.65:camD<320?.35:0,
+  smE=c._sme||(c._sme={acc:new Float32Array(24),px:new Float32Array(24),py:new Float32Array(24),pz:new Float32Array(24),on:new Uint8Array(24),used:new Uint8Array(24)});
+ {const now=performance.now(),stale=now-(smE.t||0)>250;smE.t=now;for(let q=0;q<24;q++){if(stale||!smE.used[q])smE.on[q]=0;smE.used[q]=0}}
+ /* one emitter per source (slot): puffs per second, released evenly between where the source was last frame and where it is now */
+ const smEmit=(slot,x,y,h,rate,vx,vy,vz,life,r,gg,b,big,dn)=>{if(smLOD<=0||rate<=0||c.gone)return;smE.used[slot]=1;
+  /* a car put somewhere new (grid, box) starts a new stream there */if(smE.on[slot]&&Math.hypot(x-smE.px[slot],y-smE.py[slot])>Math.max(3,sp*Math.max(dt,smDt)*2.5))smE.on[slot]=0;
+  if(!smE.on[slot]){smE.px[slot]=x;smE.py[slot]=y;smE.pz[slot]=h;smE.acc[slot]=.98;smE.on[slot]=1}
+  smE.acc[slot]+=rate*smLOD*smDt;let m=Math.floor(smE.acc[slot]);smE.acc[slot]-=m;if(m>14)m=14;
+  /* the stream is not even: it comes in surges, smoothly (two slow waves, different for every source) */if(m){const w=simT*6.1+slot*1.37,pl=.82+.36*(.5+.5*Math.sin(w))*(.5+.5*Math.sin(w*.41+slot));dn=(dn||1)*pl}
+  for(let j=0;j<m;j++){const f=(j+1)/m;SMOKE.emit(smE.px[slot]+(x-smE.px[slot])*f,smE.pz[slot]+(h-smE.pz[slot])*f,-(smE.py[slot]+(y-smE.py[slot])*f),vx,vy,vz,life,r,gg,b,big,dn,(1-f)*smDt)}
+  smE.px[slot]=x;smE.py[slot]=y;smE.pz[slot]=h};
+ if(c.smoke>0&&sp<=6&&!c.park&&!c.gone){c.smoke-=dt;/* stopped with a blown engine: the smoke rises from the back of the car */
+  smEmit(20,c.x+smCS*(RA-.5),c.y+smSN*(RA-.5),z+.7,34,0,1.7,0,.95,.8,.8,.82,2,1.3*Math.min(1,c.smoke/3)+.3)}
+ if(!c.park&&!c.gone){const WH=[[FA,-.8],[FA,.8],[RA,-.78],[RA,.78]],cs=smCS,sn=smSN;
+  /* from the outside edge of the contact patch, flung out behind the tyre with a share of the car's speed (a spinning tyre throws it
+     backwards), a little outwards and up */
+  const puff=(fx,w,rate,col,life,big,dn,blu,back)=>{const [lx,lz]=WH[w],sdz=lz>0?1:-1,oz=lz+sdz*.1,x=c.x+cs*lx+sn*oz,y=c.y+sn*lx-cs*oz,kk=.42,bk=back||0;
+   smEmit(fx*4+w,x,y,z+.16,rate,smVX*kk-cs*bk+sn*sdz*.6,.55,-(smVY*kk-sn*bk-cs*sdz*.6),life,col*(blu?.95:1),col*(blu?.97:1),col*1.02,big||1,dn)};
+  const ay=c.ay||0,inside=ay>0?0:1,ws=c.wspin||0;
+  if(ws>.12){const dif=((c.setup||SETUP0).x||0),bias=Math.abs(ay)>8?(.5-.35*(1-(dif+1)/2)):0,r0=(30+.7*sp)*Math.min(1.6,ws*1.6),bk=Math.min(7,2+ws*6);
+   puff(0,2+inside,r0*(1+bias*1.2),.96,.92,1.35,1.4,1,bk);puff(0,3-inside,r0*(1-bias*1.2),.96,.92,1.35,1.4,1,bk)}
+  /* lock-up smoke: a locked tyre makes a proper blue-white plume */if(c.lock&&sp>3){const lk=Math.min(1,sp/25),r0=(38+.8*sp)*lk;if(Math.abs(ay)<6){puff(1,0,r0,.99,.86,1.6,1.6,1);puff(1,1,r0,.99,.86,1.6,1.6,1)}else puff(1,inside,r0*1.25,.99,.86,1.7,1.6,1)}
+  const sr=Math.abs(c.ar)-.16,sf=Math.abs(c.af)-.2;if(sr>0&&sp>6){const r0=24+60*Math.min(1,sr*7);puff(2,2,r0,.9,.78);puff(2,3,r0,.9,.78)}if(sf>0&&sp>15)puff(3,inside,16+36*Math.min(1,sf*7),.88,.68);
+  if(c.bt>820&&near&&sp>6){const r0=26*Math.min(.6,(c.bt-820)/450)*(sp<25?1.4:.6);for(let w=0;w<4;w++)puff(4,w,r0*(w<2?1:.6),.62,.62)}}
  if(sp>6&&!c.park){const cs=Math.cos(c.th),sn=Math.sin(c.th);
-  const em=(lx,lz,n,r,gg,b,life)=>{for(let q=0;q<n;q++){const x=c.x+cs*lx+sn*lz,y=c.y+sn*lx-cs*lz;SMOKE.emit(x,z+.25,-y,(Math.random()-.5)*2,1+Math.random(),(Math.random()-.5)*2,life,r,gg,b)}};
-  /* tyre smoke from the wheel that is actually doing it: spinning rears, a locked front, a sliding axle; brake haze from very hot discs */
-  {const WH=[[FA,-.8],[FA,.8],[RA,-.78],[RA,.78]],puff=(w,k,col,life,big,dn,blu)=>{let m=Math.floor(k)+(Math.random()<k%1?1:0);const [lx,lz]=WH[w],x=c.x+cs*lx+sn*lz,y=c.y+sn*lx-cs*lz;
-     /* thrown out behind the tyre at a fraction of the road speed, from the outside of the contact patch */const fv=Math.hypot(c.vx,c.vy),kk=.35+.25*Math.random(),sdz=lz>0?1:-1;
-     while(m-->0){const jx=(Math.random()-.5)*.5,jz=sdz*Math.random()*.25;SMOKE.emit(x+cs*jx+sn*jz,z+.22,-(y+sn*jx-cs*jz),c.vx*cs*kk-c.vy*sn*kk+(Math.random()-.5)*1.2,.4+Math.random()*.6,-(c.vx*sn*kk+c.vy*cs*kk)+(Math.random()-.5)*1.2,life,col*(blu?.95:1),col*(blu?.97:1),col*1.02,(big||1)*(1+.15*Math.min(4,k)),dn)}};
-   const f=Math.min(1,dt*60),ay=c.ay||0,inside=ay>0?0:1,ws=c.wspin||0;
-   if(ws>.12){const dif=((c.setup||SETUP0).x||0),bias=Math.abs(ay)>8?(.5-.35*(1-(dif+1)/2)):0;puff(2+inside,f*ws*(1.6+bias*2),.96,3.1,1.35,1.4,1);puff(3-inside,f*ws*(1.6-bias*2),.96,3.1,1.35,1.4,1)}
-   /* lock-up smoke: clearly visible, but a flat-spotting front tyre makes a plume, not a wall */if(c.lock){const lk=Math.min(1,sp/25);/* v68: a locked tyre makes a proper blue-white puff */if(Math.abs(ay)<6){puff(0,f*2.6*lk,.99,2.2,1.6,1.6,1);puff(1,f*2.6*lk,.99,2.2,1.6,1.6,1)}else puff(inside,f*3.4*lk,.99,2.2,1.7,1.6,1)}
-   const sr=Math.abs(c.ar)-.16,sf=Math.abs(c.af)-.2;if(sr>0){const k=f*Math.min(2.6,sr*16);puff(2,k*.7,.9,1.6);puff(3,k*.7,.9,1.6)}if(sf>0&&sp>15){const k=f*Math.min(1.2,sf*8);puff(inside,k*.7,.88,1.2)}
-   if(c.bt>820&&near){const k=f*Math.min(.6,(c.bt-820)/450)*(sp<25?1.4:.6);for(let w=0;w<4;w++)puff(w,k*(w<2?1:.6),.62,1.1)}}
-  if((c.sL===3||c.sR===3))em(RA,0,2,.78,.66,.48,1.4);else if(c.sL===2&&c.sR===2&&Math.random()<.4)em(RA,0,1,.55,.45,.3,.9);
-  if(c.smoke>0){c.smoke-=dt;/* v68: a blown engine trails a thick white-grey plume of oil smoke */const kk=Math.min(1,c.smoke/3);for(let q=0;q<2;q++){const x=c.x+cs*(RA-.7)+(Math.random()-.5)*.4,y=c.y+sn*(RA-.7)+(Math.random()-.5)*.4;
-   SMOKE.emit(x,z+.55,-y,c.vx*.25+(Math.random()-.5)*1.5,1.2+Math.random()*1.4,-c.vy*.25+(Math.random()-.5)*1.5,3.6,.84,.84,.86,1.8,1.25*kk+.35)}}
+  /* dust and grass thrown up from behind the car (gravel: a thick plume; grass: a little) */
+  if(c.sL===3||c.sR===3)smEmit(21,c.x+cs*RA,c.y+sn*RA,z+.25,110,smVX*.3,.9,-smVY*.3,.8,.78,.66,.48,1,1);else if(c.sL===2&&c.sR===2)smEmit(22,c.x+cs*RA,c.y+sn*RA,z+.25,22,smVX*.3,.9,-smVY*.3,.6,.55,.45,.3,1,1);
+  if(c.smoke>0){c.smoke-=dt;/* v68: a blown engine trails a thick white-grey plume of oil smoke */const kk=Math.min(1,c.smoke/3);
+   smEmit(23,c.x+cs*(RA-.7),c.y+sn*(RA-.7),z+.55,80,smVX*.25,1.6,-smVY*.25,.95,.84,.84,.86,1.8,1.25*kk+.35)}
   if(near&&c.pk&&sp>12&&c.sL===0&&c.sR===0){const dd=Math.max(...c.pk.d);if(Math.random()<dd*dt*18){const sd=Math.random()<.5?.8:-.8,lx=Math.random()<.5?RA:FA;FRAG.emit(c.x+cs*lx+sn*sd,z+.3,-(c.y+sn*lx-cs*sd),-cs*sp*.2+(Math.random()-.5)*3,1+Math.random()*2,sn*sp*.2+(Math.random()-.5)*3,.6,.42,.33,.2)}}
   if(near&&sp>22){const rb=(rubAt(c.idx,c.lt+.8)+rubAt(c.idx,c.lt-.8))/2,off=(TRACK.marb||0)*Math.max(0,1-rb*2.2),wr=Math.max(c.tw[0],c.tw[1]);
    const n=(off*1.6+wr*.25+(Math.abs(c.ay||0)>25?.2:0))*dt*30;for(let q=0;q<n;q++)if(Math.random()<n-q){const sd=Math.random()<.5?.8:-.8,lx=Math.random()<.6?RA:FA,x=c.x+cs*lx+sn*sd,y=c.y+sn*lx-cs*sd;
@@ -5277,7 +5310,7 @@ function onTap(el,fn){if(!el)return;let last=0;tapOnly(el,e=>{const n=Date.now()
 const KEYS={ArrowLeft:'l',a:'l',ArrowRight:'r',d:'r',ArrowUp:'g',w:'g',ArrowDown:'b',s:'b',' ':'b',e:'u',q:'d'};
 function bindBtn(id,k){const e=$(id);if(!e)return;const on=ev=>{ev.preventDefault();HIN[k]=1;e.classList.add('on');try{e.setPointerCapture(ev.pointerId)}catch(_){}},off=()=>{HIN[k]=0;e.classList.remove('on')};
  e.addEventListener('pointerdown',on);['pointerup','pointercancel','lostpointercapture'].forEach(t=>e.addEventListener(t,off))}
-let SPEED=1;
+let SPEED=1,SMTK=1;/* SMTK: how fast smoke lives (sim time: frozen when paused, faster at ×2..×8, the replay's own speed in a replay) */
 function setCam(m){CAM.mode=m;CAM.tvI=-1;CAM.dir.t=0;$('camb').textContent='🎥 '+CAMN[m].split(' ')[0];$('camw').textContent='🎥 '+CAMN[m].split(' ')[0].slice(0,6);[...$('camlist').children].forEach(b=>b.classList.toggle('sel',b.dataset.m===m))}
 function cycleCam(){const i=CAMS.findIndex(x=>x[0]===CAM.mode);setCam(CAMS[(i+1)%CAMS.length][0])}
 function updWatchLabel(){const c=VIEW.car;$('carname').innerHTML=`<i style="background:${hx(c.col)}"></i>${c.code}<small>P${c.pos||'-'}</small>`}
@@ -5313,7 +5346,7 @@ function settingsHTML(){const b=(k,t)=>`<button data-k="${k}">${t}</button>`,sec
   h+=sec('Car set-up')+`<div class="srow sdesc" style="color:${lk==='parc'?'#ffb000':'#9fd8ff'}">${lk==='parc'?'Parc fermé: the set-up is locked from qualifying on, as in F1. Brake bias and diff can still be changed from the steering wheel (also the on-screen BB / DIFF buttons), and the front wing angle at a pit stop.':lk==='stop'?'On track: changes are fitted by your mechanics at your next pit stop (press BOX). In the garage they are fitted straight away.':'In the garage: changes are fitted straight away. Brake bias and diff can also be changed on track.'}</div>`;
   if(lk==='parc')h+=`<div class="srow"><label>Front wing at next stop<b id="fwn">${PLAYER.fwNext>0?'+':''}${PLAYER.fwNext||0} click${Math.abs(PLAYER.fwNext||0)===1?'':'s'}</b></label><div style="display:flex;gap:6px"><button data-k="fw_m" style="flex:1">− less wing</button><button data-k="fw_p" style="flex:1">+ more wing</button></div><div class="sdesc">More front wing: sharper turn-in and less understeer, a touch more drag. Fitted at your next stop.</div></div>`;
   for(const k of ['w','b','r','s','af','ar','c','k','a','x','bb','d','g']){const live=k==='bb'||k==='x',off=lk==='parc'&&!live,pd=!live&&lk==='stop'&&pend[k]!=null,v=pd?pend[k]:(su[k]||0),pct=Math.round(50+v*50);h+=`<div class="srow"${off?' style="opacity:.45"':''}><label>${lab[k][0]}${live?' <span style="color:#30d158;font-size:9px">LIVE</span>':''}<b id="sv_${k}">${pct}%${pd?' → next stop':''}</b></label><input type="range" min="0" max="100" step="5" value="${pct}" data-su="${k}"${off?' disabled':''}><div class="ends"><span>${lab[k][1]}</span><span>${lab[k][2]}</span></div><div class="sdesc">${SU_DESC[k]||""}</div></div>`}}
- h+=sec('Session · game v69')+(R.type==='R'&&!RPL.on&&!LC.on&&HL.clips.length+HL.pend.length?b('hl','🎬 Race highlights ('+(HL.clips.length+HL.pend.length)+' moments so far)'):'')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
+ h+=sec('Session · game v69.1')+(R.type==='R'&&!RPL.on&&!LC.on&&HL.clips.length+HL.pend.length?b('hl','🎬 Race highlights ('+(HL.clips.length+HL.pend.length)+' moments so far)'):'')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
 function settingsAct(k){{const ca=ctlAct(k);if(ca==='closed')return;if(ca){$('sheet').innerHTML=settingsHTML();return}}if(k==='look'){lookApply(!LOOK.on);try{localStorage.setItem('glgp_look',LOOK.on?'enhanced':'classic')}catch(e){}}if(k==='shadows'){const on=!renderer.shadowMap.enabled;renderer.shadowMap.enabled=on;sun.castShadow=on;scene.traverse(o=>{if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true)}})}
  if(k==='res'){/* Auto -> 100% -> 85% -> 67% -> 50% -> Auto; a fixed choice switches the automatic scaler off so it can't undo it, and is remembered */const steps=['auto',1,.85,.67,.5],i=steps.indexOf(PERF.auto?'auto':PERF.fix);resSet(steps[(i+1)%steps.length]);try{localStorage.setItem('glgp_res',String(PERF.auto?'auto':PERF.fix))}catch(e){}}
  if(k==='shake')CAM.shakeOn=!CAM.shakeOn;if(k==='mirror')SET.mirror=!SET.mirror;if(k==='refl')SET.refl=!SET.refl&&!!CUBECAM;if(k==='fps'){SET.fps=!SET.fps;$('fps').style.display=SET.fps?'block':'none'}
@@ -5401,7 +5434,7 @@ function skyFrame(dt){const c=WX.cloud,u=SKYU,ws=(WX.ws||0)*(WX.g||1)*3.2+1.5,wx
 function frame(now){const dt=Math.max(0,Math.min(.05,(now-lastT)/1000));lastT=now;fpsN++;fpsT+=dt;ctlTick(dt);if(fpsT>1){if(SET.fps)$('fps').textContent=fpsN+' fps';fpsN=0;fpsT=0}
  let skipDraw=true;if(skipping){skipDraw=fpsN%6===0;const t0=performance.now();while(performance.now()-t0<110&&!R.done){for(let k=0;k<20;k++)simStep();frameUpdate(DT*20)}if(R.done){$('skipm').style.display='none';skipping=false;if(!CFG.watch)PLAYER.ai=CFG.assist==='auto'}}
  else if(!$('res').classList.contains('open')){acc+=dt*SPEED;let n=0;while(acc>=DT&&n<1600){simStep();acc-=DT;n++;if(n%10===0)frameUpdate(DT*10)}if(n%10)frameUpdate(DT*(n%10))}
- {/* wind at the camera's part of the lap blows smoke and dust downwind; sparks are too heavy to care */const wv=windAt(VIEW.car.idx);SMOKE.update(dt,-.6,1.2,wv[0],-wv[1]);SPARK.update(dt,9.81,.8,wv[0]*.15,-wv[1]*.15)}
+ {/* wind at the camera's part of the lap blows smoke and dust downwind; sparks are too heavy to care */const wv=windAt(VIEW.car.idx);SMTK=skipping||$('res').classList.contains('open')?0:(RPL.on||LC.on||HL.on)?(VIEW.car._tk??1):SPEED;SMOKE.update(dt*SMTK,-.6,1.2,wv[0],-wv[1]);SPARK.update(dt,9.81,.8,wv[0]*.15,-wv[1]*.15)}
  /* hot-lap compare places its cars first: the drawing below shifts every car for the in-between moment and puts it back afterwards,
     and a car placed after that shift was put straight back where it started (the solid car stood still while the ghost drove) */
  ghostFrame(VIEW.car,dt);
@@ -5484,7 +5517,7 @@ return {ev:x=>eval(x)};
  const SCN_FILES={7:{url:'montreal-model.bin',txt:'montreal-model.txt',mb:9}};
  const real=p=>{const m=Math.floor(p/60);return m+':'+(p-60*m).toFixed(1).padStart(4,'0')};
  const grp=(lab,key,items)=>`<div class="grp"><label>${lab}</label><div class="opts">${items.map(([v,t,s])=>`<button data-key="${key}" data-v="${v}" class="${S[key]==v?'sel':''}">${t}${s?`<small>${s}</small>`:''}</button>`).join('')}</div></div>`;
- function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v69</b></div>`+
+ function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v69.1</b></div>`+
   grp('CIRCUIT','track',TRACKS.map((t,i)=>[i,t.name,t.km.toFixed(2)+' km · '+t.climb+' m elevation · real pole ≈ '+real(t.pole)]))+
   grp('WEEKEND','format',[['full','Full weekend','Practice → Q1/Q2/Q3 → Race'],['qr','Qualifying + race',''],['r','Race only','']])+
   grp('RACE LENGTH','laps',[[5,'5 laps'],[10,'10 laps'],[20,'20 laps'],[30,'30 laps'],['h','Half distance',Math.ceil(FULL(S.track)/2)+' laps'],['f','Full distance',FULL(S.track)+' laps · 305 km']])+
