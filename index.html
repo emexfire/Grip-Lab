@@ -201,7 +201,7 @@ body.hudEd #kc{display:block}body.hudEd.hm-watch #kc,body.hudEd.hm-replay #kc,bo
 body.standalone #fsb{display:none}
 /* v71 HUD tidy-up: the car panel stays clear of the pedals (and never runs under them), tighter lines; the brake bias / diff box sits in the
    top corner by the panel instead of over the view of the track; fuel colours when it is short */
-#me{max-height:calc(100% - env(safe-area-inset-top,0px) - 34px - env(safe-area-inset-bottom,0px) - 92px);overflow:hidden}#me #secs{display:inline-grid;width:55%;vertical-align:middle;margin:2px 0}#me #delta{display:inline-block;width:43%;vertical-align:middle;line-height:12px}.ersh{margin-top:3px}.ersw{margin:2px 0 3px!important}#tyres small.brk{color:var(--mute)}#tyres small.brk b{font-weight:800}#rpmv{font-size:9.5px!important;line-height:1.1!important}#rpmv b{margin-top:1px!important}#spdu{color:var(--mute);font:700 9px system-ui;margin-left:3px;font-style:normal;letter-spacing:0}#pinfo:empty{min-height:0;margin:0}
+/* v71.1: the panel grows down as far as its information needs again (Emmanuel: it was cut short) */#me{max-height:none;overflow:visible}#me #secs{display:inline-grid;width:55%;vertical-align:middle;margin:2px 0}#me #delta{display:inline-block;width:43%;vertical-align:middle;line-height:12px}.ersh{margin-top:3px}.ersw{margin:2px 0 3px!important}#tyres small.brk{color:var(--mute)}#tyres small.brk b{font-weight:800}#rpmv{font-size:9.5px!important;line-height:1.1!important}#rpmv b{margin-top:1px!important}#spdu{color:var(--mute);font:700 9px system-ui;margin-left:3px;font-style:normal;letter-spacing:0}#pinfo:empty{min-height:0;margin:0}
 #me .tm{line-height:1.22!important}
 #dmg.cs{height:auto!important;transform:none!important;margin:4px 0 1px}#dmg .csw{display:flex;align-items:center;justify-content:center;gap:3px}#dmg .csv{width:28px;height:48px;display:block;flex:none}#dmg .csn{display:flex;flex-direction:column;justify-content:space-between;height:43px;min-width:19px;font:800 9.5px/1 system-ui;color:#e8ecf1;font-variant-numeric:tabular-nums;padding:2px 0}#dmg .csn:first-child{text-align:right}#dmg .csn b{font-weight:800}#fuel.wn{color:#ffb000}#fuel.bd{color:#ff453a}
 body.wadjTR #wadj{left:auto;right:calc(env(safe-area-inset-right,0px) + 108px);top:calc(env(safe-area-inset-top,0px) + 40px)}#wadj{gap:3px;font-size:10px}
@@ -561,6 +561,15 @@ const VRP=ASP?(()=>{const V=new Float32Array(N).fill(VT),p=PROF_PAR;
  for(let i=0;i<N;i++){if(!PZN[i])continue;const k=Math.abs(PKR[i]);if(k<1e-5)continue;let lo=3,hi=VT;if(p.amax(hi,i)>=hi*hi*k)continue;
   for(let it=0;it<30;it++){const mid=(lo+hi)/2;if(p.amax(mid,i)>=mid*mid*k)lo=mid;else hi=mid}V[i]=lo}
  return V})():null,PVK=.78;
+/* v71.1: the same for tyres that are not up to temperature. Out of the pits they give as little as 60% of their grip, and the bots took the
+   exit road's bends at the speed warm tyres hold: at Spa they slid wide into the barrier on the way up beside Eau Rouge. The pit road's
+   corner speeds for each grip level (60%, 70%, 80%, 90%, full); a car uses the level its colder axle gives it */
+const VRPG=ASP?[.6,.7,.8,.9,1].map(gk=>{if(gk===1)return VRP;const V=new Float32Array(N).fill(VT),p=PROF_PAR;
+ for(let i=0;i<N;i++){if(!PZN[i])continue;const k=Math.abs(PKR[i]);if(k<1e-5)continue;let lo=3,hi=VT;if(p.amax(hi,i)*gk>=hi*hi*k)continue;
+  for(let it=0;it<30;it++){const mid=(lo+hi)/2;if(p.amax(mid,i)*gk>=mid*mid*k)lo=mid;else hi=mid}V[i]=lo}return V}):null;
+/* [level, fraction] for a car's tyres now; vrpK reads the speed at a station */
+const vrpGrip=c=>{const cp=CMP[c.cmp]||CMP.M,g=Math.min(tyreTempK(cp,c.tt[0]),tyreTempK(cp,c.tt[1])),f=Math.min(3.999,Math.max(0,(g-.6)/.1)),j=Math.floor(f);return[j,f-j]},
+ vrpK=(q,k)=>q?VRPG[q[0]][k]*(1-q[1])+VRPG[q[0]+1][k]*q[1]:VRP[k];
 buildRunoff(VR);applySide();
 function mkCar(o){return Object.assign({x:0,y:0,th:0,vx:0,vy:0,r:0,ax:0,ay:0,st:0,dl:0,thr:0,brk:0,idx:0,lt:0,ltPrev:0,af:0,ar:0,
  aero:1,am:'a',ers:ERS_CAP,harv:0,ot:false,otOK:false,otUntil:-1,fuel:20,mass:M0+20,cmp:'M',tw:[0,0],tt:[70,70],age:0,punct:[0,0,0,0],pres:[1,1,1,1],prate:[0,0,0,0],fsA:[0,0,0,0],flat:[0,0,0,0],bt:320,bfail:0,used:{},
@@ -1048,6 +1057,7 @@ function collide(cars,onContact){
    if(pen>0){const sg=off<lo?1:-1,n=[FNX[bj]*sg,FNY[bj]*sg];a.x+=n[0]*pen;a.y+=n[1]*pen;
     /* barriers: a tyre wall (behind gravel traps) gives and soaks up the hit; bare concrete bounces the car back */
     const tyreW=!STREET&&!(ASP&&a.pf)&&RUN[2*bj+(sg>0?1:0)]===1,ra=[ca*o-n[0]*CR,sa*o-n[1]*CR],j=impulse(a,ra,null,null,n,tyreW?.04:.15);if(tyreW){a.vx*=1-Math.min(.35,j/90000)}
+    /* v71.1: in contact with a wall now (the scraping sound) */a.wallT=SIMT();a.wallTyre=tyreW?1:0;
     if(j>0){applyHit(a,a.x+ra[0],a.y+ra[1],j*(tyreW?.62:1),'wall');onContact&&onContact(a,null,j)}}}
   const aPit=inPitLaneC(a);
   for(let k=i+1;k<cars.length;k++){const b=cars[k];if(b.gone||Math.abs(a.x-b.x)>7||Math.abs(a.y-b.y)>7)continue;if((a.rb&&a.rb.h>.9)||(b.rb&&b.rb.h>.9))continue;
@@ -1208,7 +1218,11 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
  /* off in the run-off on the far side when the pit entry comes up: rejoin first and come in next lap */
  if(ASP){/* as-is pit lane: still on the track once the entry road has left it - missed, come in next lap */if(c.pitPh===1&&!c.pf&&rel>PRD+4&&rel<ZL){c.pitPh=0;c.pitMiss=(c.pitMiss||0)+1}
   /* v70: knocked well off the pit line just before the entry road leaves the track (a touch in the chicane): miss it and come in next lap, never slash across the road to make it */
-  else if(c.pitPh===1&&c.pf&&!(c.human&&!c.ai)&&rel>=PRD-5&&rel<=PRD+1&&Math.abs(c.lt-PLP[c.idx])>4.5){c.pitPh=0;c.pitMiss=(c.pitMiss||0)+1}}
+  else if(c.pitPh===1&&c.pf&&!(c.human&&!c.ai)&&rel>=PRD-5&&rel<=PRD+1&&PS(c.lt-PLP[c.idx])<-4.5){c.pitPh=0;c.pitMiss=(c.pitMiss||0)+1}
+  /* v71.1: only a car knocked back towards the track calls it off. One pushed out past the pit road (spun by a touch at the entry) is already beside it: it used to
+     give up there, then wander the entry road with nowhere to go until it wrecked itself on the walls. Past the point where the road leaves the track the road only
+     leads to the pit lane, so a car on it always carries on through */
+  if(c.pf&&!c.pitPh&&!c.park&&!c.out&&!c.isSC&&(!c.human||c.ai)&&rel>PRD+4&&rel<ZL){c.pitPh=1;c.pitReq=true;if(c.run)c.run.phase='in';if(c.stopRel==null){const mate=R.cars.find(o=>o!==c&&o.team===c.team&&(o.pitPh===1||o.pitPh===2)&&!o.park);c.stopRel=RB(c.team)-(mate?1.95:0)}}}
  else if(c.pitPh===1&&lt<-(HW+3)&&!inPitLane(c.idx,lt)&&(rel>=N-40||rel<RR+6)){c.pitPh=0;c.pitMiss=(c.pitMiss||0)+1}
  /* missed the pit entry and pinned against the pit wall: give up this lap, come round and try again */
  if(c.pitPh===1&&!inPitLaneC(c)&&Math.hypot(c.vx,c.vy)<1.2){c.pitPin=(c.pitPin||0)+dt;if(c.pitPin>3){c.pitPh=0;c.pitPin=0;c.pitMiss=(c.pitMiss||0)+1}}else c.pitPin=0;
@@ -1539,9 +1553,10 @@ function aiDrive(c,dt,R){/* as-is circuits: the road's own half width here and j
  let need=0,tv0=Math.min(tv,tvA(bi));c._traf=!c.pitPh&&tv<tvA(bi)-.3;/* diagnostics: the speed target held down by traffic (caps, eases) rather than by the road */const aBk=(c.aB?Math.max(c.aB[segOf(bi)],c.aB[segOf(W(bi+12))]):1)*(c.bfade<1?1/Math.max(.5,c.bfade):1)*(c.bt>900?1.04:1)*(c.bfail?3.2:1);
  /* v70: a car with a damaged front wing or floor has lost downforce: it takes the pit road's corners slower or it runs wide and misses the entry */
  const pvk=PVK*(1-.3*Math.min(1,Math.max(c.dm.fw||0,c.broke&&c.broke.fw?1:0)+.5*(c.dm.floor||0)));
- if(c.pitPh){tv0=tv;/* v70: on an as-is pit road, its own corners */if(VRP&&relOf(bi)<ZL)tv0=Math.min(tv0,VRP[bi]*pvk)}
+ const vrq=VRPG&&c.pitPh&&!c.isSC?vrpGrip(c):null;/* the safety car's road tyres are not modelled for heat */
+ if(c.pitPh){tv0=tv;/* v70: on an as-is pit road, its own corners (v71.1: at the speed its tyres can hold at their temperature) */if(VRP&&relOf(bi)<ZL)tv0=Math.min(tv0,vrpK(vrq,bi)*pvk)}
  const J=Math.min(90,Math.ceil((v*v/(2*12)+30)/DS));
- let eS=0;for(let j=1;j<=J;j++){const k=W(bi+j);eS+=EBR[W(k-1)];let vt=c.pitPh?(relOf(k)<ZL?(VRP?VRP[k]*pvk:VT):tvAt(c,k)):tvA(k);if(R.slow)vt=Math.min(vt,R.slowV(k,c));const a=(v*v-vt*vt)/(2*j*DS)/Math.max(.4,eS/j);if(a>0){/* braking capacity falls with speed (less downforce): judge against the average over the stop */const cL=.93*MU0*cl(c.gk,.6,1.012)*(G+vt*vt*KD*(c.dfK||1)*dfl/m)+CDH*vt*vt/m,r=a*capB/((capB+cL)*.5);if(r>need)need=r}}
+ let eS=0;for(let j=1;j<=J;j++){const k=W(bi+j);eS+=EBR[W(k-1)];let vt=c.pitPh?(relOf(k)<ZL?(VRP?vrpK(vrq,k)*pvk:VT):tvAt(c,k)):tvA(k);if(R.slow)vt=Math.min(vt,R.slowV(k,c));const a=(v*v-vt*vt)/(2*j*DS)/Math.max(.4,eS/j);if(a>0){/* braking capacity falls with speed (less downforce): judge against the average over the stop */const cL=.93*MU0*cl(c.gk,.6,1.012)*(G+vt*vt*KD*(c.dfK||1)*dfl/m)+CDH*vt*vt/m,r=a*capB/((capB+cL)*.5);if(r>need)need=r}}
  if(R.slow)tv0=Math.min(tv0,R.slowV(bi,c));
  let g=0,b=0;
  if(c.mLate>0)need=0;
@@ -4126,7 +4141,7 @@ function idleSpot(t,k,carIn){const A=PSD*(SLOT_A(t)-TEAM_FR[t].s)*DS,B=PSD*(SLOT
  return S[k%S.length]}
 const TEAMST=TEAMS.map(()=>({st:'idle',relT:0,car:null,work:0,lastSvc:null}));
 function svcPhase(c){const wd=c.svcWorkDur||2.3,w=wd-(c.svcT||0);return{w,wd}}
-function crewUpdate(dt){const camP=cam.position;
+function crewUpdate(dt){const camP=cam.position,GA=typeof ASIS!=='undefined'&&ASIS&&ASIS.gnd?ASIS.gnd:null;
  for(const c of cars){c.wheelHide=c.wheelHide||[0,0,0,0];c.wheelHide.fill(0);c.jackK=0}
  const tyreUse={S:0,M:0,H:0};
  const putTyre=(cmp,x,y,z,yaw,roll)=>{const im=PROP['ty'+(cmp||'M')],i=tyreUse[cmp||'M']++;if(i<im.userData.cap)setM(im,i,x,y,z,roll||0,yaw+Math.PI/2,0)};
@@ -4159,9 +4174,10 @@ function crewUpdate(dt){const camP=cam.position;
     [tx,tz]=carW(cx,cy,th,fx,fl);const fp=carW(cx,cy,th,ffx,ffl);face=yawTo(tx,tz,fp[0],fp[1]);pose=ps;
     if(k===12||k===13)face=th+(k===12?Math.PI:0);
     /* props */
-    if(k<12){const r=k%3,wi=Math.floor(k/3),[wx,wl]=WHL[wi],hub=carW(cx,cy,th,wx,wl),hy=gy+TR+(svc?.07*(svc.jackK||0):0);
-     if(r===1&&st==='service'&&!wait){const u=sm((w-.5)/.4);if(w>.5){const hx_=lerp(hub[0],p.x+Math.cos(p.yaw)*.42,u),hz_=lerp(hub[1],p.z-Math.sin(p.yaw)*.42,u);putTyre(oldC,hx_,lerp(hy,gy+(w>.95?1.0:.45),u),hz_,th+Math.PI/2)}}
-     if(r===2){const on=st==='service'&&!wait,u=on?sm((w-.82)/.42):0;if(!(on&&w>=1.25)){const hx_=lerp(p.x+Math.cos(p.yaw)*.42,hub[0],u),hz_=lerp(p.z-Math.sin(p.yaw)*.42,hub[1],u);putTyre(newC,hx_,lerp(gy+.45,hy,u),hz_,th+Math.PI/2)}else if(svc)svc.visCmp=newC}
+    /* v71.1: props sit on the ground where they are (the model's floor on a circuit drawn from a model) */const pg=p.y?p.y-.01:gy;
+    if(k<12){const r=k%3,wi=Math.floor(k/3),[wx,wl]=WHL[wi],hub=carW(cx,cy,th,wx,wl),hy=((GA&&GA.at(hub[0],-hub[1]))??gy)+TR+(svc?.07*(svc.jackK||0):0);
+     if(r===1&&st==='service'&&!wait){const u=sm((w-.5)/.4);if(w>.5){const hx_=lerp(hub[0],p.x+Math.cos(p.yaw)*.42,u),hz_=lerp(hub[1],p.z-Math.sin(p.yaw)*.42,u);putTyre(oldC,hx_,lerp(hy,pg+(w>.95?1.0:.45),u),hz_,th+Math.PI/2)}}
+     if(r===2){const on=st==='service'&&!wait,u=on?sm((w-.82)/.42):0;if(!(on&&w>=1.25)){const hx_=lerp(p.x+Math.cos(p.yaw)*.42,hub[0],u),hz_=lerp(p.z-Math.sin(p.yaw)*.42,hub[1],u);putTyre(newC,hx_,lerp(pg+.45,hy,u),hz_,th+Math.PI/2)}else if(svc)svc.visCmp=newC}
      if(r===0){prop='gun'}}
     if(k===12||k===13)prop='jack'}
    else if(st==='push'&&sp&&[12,13,14,15,1,4,7,10].includes(k)){const c=pushC,out=c.push.kind==='out';let fx,fl,ps='push';
@@ -4176,7 +4192,8 @@ function crewUpdate(dt){const camP=cam.position;
    /* move */
    const dx=tx-p.x,dz=tz-p.z,d=Math.hypot(dx,dz),vmax=run||st==='service'?4.2:1.5;
    if(p.y===0){p.x=tx;p.z=tz;p.yaw=face}
-   p.y=gy+(Math.hypot(p.x-fr.p[0],p.z-fr.p[2])>0?.0:0)+((-(_v.set(p.x,0,p.z).applyMatrix4(TF[t].inv).z))>GL0-.2?.06:.01);
+   /* v71.1: on the model's own floor where the circuit is drawn from a model (Spa's pit lane slopes); else the team's level (its garage floor) */
+   {const g=GA?GA.at(p.x,-p.z):null;p.y=g!=null?g+.01:gy+((-(_v.set(p.x,0,p.z).applyMatrix4(TF[t].inv).z))>GL0-.2?.06:.01)}
    if(d>.04){const s=Math.min(d,vmax*dt);p.x+=dx/d*s;p.z+=dz/d*s;p.spd=s/Math.max(dt,1e-4);if(d>.35)p.yaw+=wrap(Math.atan2(-dz,dx)-p.yaw)*Math.min(1,dt*10);else p.yaw+=wrap(face-p.yaw)*Math.min(1,dt*8)}
    else{p.spd=0;p.yaw+=wrap(face-p.yaw)*Math.min(1,dt*8)}
    /* people are solid too: never stand inside a car, and step back out of the path of one rolling in or out */
@@ -4199,19 +4216,19 @@ function crewUpdate(dt){const camP=cam.position;
      setM(PROP.gun,gunI,h.x+Math.cos(p.yaw)*kick,h.y,h.z-Math.sin(p.yaw)*kick,0,p.yaw,pose==='kneel'?-.2:-1.2);PROP.gun.setColorAt(gunI++,_c.set(TEAMS[t].col))}
    if(prop==='tyreOld'&&p.carry){putTyre(p.carry,p.x+Math.cos(p.yaw)*.4,p.y+1.0,p.z-Math.sin(p.yaw)*.4,p.yaw)}
    if(prop==='jack'){const lift=st==='service'&&ph&&ph.w>0&&ph.w<ph.wd-.2;setM(PROP.jack,jackI,p.x+Math.cos(p.yaw)*.15,p.y+.5,p.z-Math.sin(p.yaw)*.15,0,p.yaw,lift?-.32:-.26);PROP.jack.setColorAt(jackI++,_c.set(TEAMS[t].acc))}}
-  if(svc){const w=ph.w;svc.jackK=w<=0?0:w<ph.wd-.2?sm(w/.25):sm((ph.wd-w)/.2)}}
+  if(svc){const w=ph.w;svc.jackK=w<=0?0:w<ph.wd-.2?sm(w/.25):sm((ph.wd-w)/.2);/* v71.1: and the sounds of it */if(typeof pitSfx==='function'&&!HEADLESS)pitSfx(S,svc,ph,gy,GA,camP)}else S.pw=-9}
  /* draw only the props in use (unused slots used to be zero-scaled, but their vertices were still processed, also in the shadow pass) */
  PROP.gun.count=Math.min(gunI,PROP.gun.userData.cap);PROP.jack.count=Math.min(jackI,PROP.jack.userData.cap);
  for(const k of ['S','M','H']){const im=PROP['ty'+k];im.count=Math.min(tyreUse[k],im.userData.cap);im.instanceMatrix.needsUpdate=true}
  PROP.gun.instanceMatrix.needsUpdate=true;PROP.jack.instanceMatrix.needsUpdate=true;PROP.gun.instanceColor.needsUpdate=true;PROP.jack.instanceColor.needsUpdate=true;
  /* pit wall engineers */
  for(let t=0;t<NT_;t++)for(let e=0;e<ENG_N;e++){const p=PEOPLE[NT_*CREW_N+t*ENG_N+e],fr=TEAM_FR[t];
-  if(p.y===0){/* v70 as-is: at the model's own pit wall (lane side) */const wl=ASP?PS(ASP.wall)+.8:HW+2.75,[x,z]=teamLocal(t,(e-1)*1.3,wl);p.x=x;p.z=z;p.y=fr.p[1]+.01;p.yaw=fr.h+Math.PI/2*-1;p.yaw=yawTo(x,z,...teamLocal(t,(e-1)*1.3,wl-5.75))}
+  if(p.y===0){/* v70 as-is: at the model's own pit wall (lane side) */const wl=ASP?PS(ASP.wall)+.8:HW+2.75,[x,z]=teamLocal(t,(e-1)*1.3,wl);p.x=x;p.z=z;{const g=GA?GA.at(x,-z):null;p.y=(g!=null?g:fr.p[1])+.01}p.yaw=fr.h+Math.PI/2*-1;p.yaw=yawTo(x,z,...teamLocal(t,(e-1)*1.3,wl-5.75))}
   const near=Math.hypot(camP.x-p.x,camP.z-p.z)<260;if(!near&&!p.dirty)continue;p.dirty=false;
   blendPose(p.q,PZ.sit,.2);p.q.hd=.05+Math.sin(simT*.5+e*2+t)*.12;p.q.tw=Math.sin(simT*.3+e+t)*.15;fk(p)}
  /* marshals: wave yellow at incidents and under the safety car, red under red flags */
  let fi=0;for(const p of PEOPLE){if(p.kind!=='marshal')continue;const m=p.post;
-  if(p.y===0){const i=m.i;p.x=T[i][0]+NX[i]*m.lat;p.z=-(T[i][1]+NY[i]*m.lat);p.y=HZ[i]-.04;p.yaw=yawTo(p.x,p.z,T[i][0],-T[i][1])}
+  if(p.y===0){const i=m.i;p.x=T[i][0]+NX[i]*m.lat;p.z=-(T[i][1]+NY[i]*m.lat);{const g=GA?GA.pt(p.x,-p.z,HZ[i]):null;p.y=g!=null?g-.02:HZ[i]-.04}p.yaw=yawTo(p.x,p.z,T[i][0],-T[i][1])}
   const near=Math.hypot(camP.x-p.x,camP.z-p.z)<380;
   const fc=R.flag==='RED'?0xff2020:(R.flag==='SC'||R.flag==='VSC'||R.yellowAt(m.i))?0xffd400:null;
   if(near||p.dirty){p.dirty=false;blendPose(p.q,fc?PZ.wave:PZ.cross,.15);if(fc){p.q.ab[1]=.3+Math.sin(simT*7+p.k)*.45;p.q.ap[1]=2.4+Math.sin(simT*7+p.k)*.2}fk(p)}
@@ -4289,13 +4306,45 @@ const ASIS=(()=>{if(HEADLESS||!CFG.scn||!AS)return null;const dv0=new DataView(C
     for(let u=0;u<=n;u++)for(let v=0;v<=n-u;v++){const fu=u/n,fv=v/n,fw=1-fu-fv,x=ox+ax*fw+bx*fu+cx*fv,y=oy+ay*fw+by*fu+cy*fv,z=oz+az*fw+bz*fu+cz*fv,kk=okey(x,y),o=OG.get(kk);if(o===undefined||z>o)OG.set(kk,z);const om=OGm.get(kk);if(om===undefined||z<om)OGm.set(kk,z)}}});
   /* distance from the target towards the camera at which the view is first blocked (-1: clear); world east/north/height */
   const los=(tx,ty,tz,cx,cy,cz)=>{const dx=cx-tx,dy=cy-ty,dz=cz-tz,d=Math.hypot(dx,dy,dz);if(d<6)return -1;for(let s=4;s<d-1;s+=2){const f=s/d,k=okey(tx+dx*f,ty+dy*f),h=OG.get(k);if(h===undefined)continue;const zr=tz+dz*f;/* v68: only what is really in the way at the ray's height: a tree canopy or a bridge overhead does not hide the car */if(h>zr+.3&&OGm.get(k)<zr-.2)return s}return -1};
+  /* v71.1: the ground people stand on. The crews, the pit wall engineers and the marshals stood at one height for each team (the centreline's,
+     level with its box): on a sloping pit lane (Spa) some were in the air and some sank into the ground. The model's own floors (upward-facing
+     road, pit lane, run-off, grass and building floors) are rasterised at load into a 0.5 m height map of the pit area, choosing in each cell the
+     surface nearest the pit lane's own height there (so a garage roof or a footbridge overhead never counts); single points (the marshals) are
+     found the same way on demand. Game east/north in, height out (null where the model has no floor) */
+  const GND=(()=>{if(!ASP)return null;
+   const FL={road:1,apron:1,kerb:1,runoff:1,grass:1,gravel:1,building:1},pst=[];for(let i=0;i<N;i++)if(PZN[i]&&!PCO[i])pst.push(i);if(!pst.length)return null;
+   const ref0=(x,y)=>{let bd=1e18,bh=0;for(const i of pst){const dx=x-PT[i][0],dy=y-PT[i][1],d=dx*dx+dy*dy;if(d<bd){bd=d;bh=PHZ[i]}}return bh};
+   const CB=[];hd.chunks.forEach((c,ci)=>{if(!FL[hd.mats[c.m].role])return;const P=PP[ci],q=1/c.q;let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    for(let k=0;k<P.length;k+=3){const x=P[k],y=P[k+1];if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}CB.push({ci,q,ox:c.o[0],oy:c.o[1],oz:c.o[2],x0:c.o[0]+x0*q,x1:c.o[0]+x1*q,y0:c.o[1]+y0*q,y1:c.o[1]+y1*q})});
+   /* every floor-like triangle (facing within 53 degrees of straight up or down) that reaches a box */
+   const scan=(bx0,by0,bx1,by1,fn)=>{for(const b of CB){if(b.x1<bx0||b.x0>bx1||b.y1<by0||b.y0>by1)continue;const P=PP[b.ci],I=II[b.ci],q=b.q;
+     for(let k=0;k<I.length;k+=3){const a=I[k]*3,d=I[k+1]*3,e=I[k+2]*3,ax=b.ox+P[a]*q,bx=b.ox+P[d]*q,cx=b.ox+P[e]*q;if((ax<bx0&&bx<bx0&&cx<bx0)||(ax>bx1&&bx>bx1&&cx>bx1))continue;
+      const ay=b.oy+P[a+1]*q,by=b.oy+P[d+1]*q,cy=b.oy+P[e+1]*q;if((ay<by0&&by<by0&&cy<by0)||(ay>by1&&by>by1&&cy>by1))continue;
+      const az=b.oz+P[a+2]*q,bz=b.oz+P[d+2]*q,cz=b.oz+P[e+2]*q,ux=bx-ax,uy=by-ay,uz=bz-az,vx=cx-ax,vy=cy-ay,vz=cz-az,nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=Math.hypot(nx,ny,nz);
+      if(nl<1e-9||Math.abs(nz)<.6*nl)continue;fn(ax,ay,az,bx,by,bz,cx,cy,cz)}}};
+   /* the pit area: every team's frame (on the track by its box) with room for the pit lane and the garages */
+   let X0=1e9,Y0=1e9,X1=-1e9,Y1=-1e9;for(const f of TEAM_FR){const x=f.p[0],y=-f.p[2];X0=Math.min(X0,x);X1=Math.max(X1,x);Y0=Math.min(Y0,y);Y1=Math.max(Y1,y)}
+   const MG=Math.abs(GL1)+12;X0-=MG;Y0-=MG;X1+=MG;Y1+=MG;const CS=.5,GX=Math.ceil((X1-X0)/CS),GY=Math.ceil((Y1-Y0)/CS);if(GX*GY>5e6)return null;
+   const H=new Float32Array(GX*GY).fill(NaN),D=new Float32Array(GX*GY).fill(1e9),RC=4,RX=Math.ceil((X1-X0)/RC),RY=Math.ceil((Y1-Y0)/RC),RF=new Float32Array(RX*RY);
+   for(let j=0;j<RY;j++)for(let i=0;i<RX;i++)RF[j*RX+i]=ref0(X0+(i+.5)*RC,Y0+(j+.5)*RC);
+   scan(X0,Y0,X1,Y1,(ax,ay,az,bx,by,bz,cx,cy,cz)=>{const den=(by-cy)*(ax-cx)+(cx-bx)*(ay-cy);if(Math.abs(den)<1e-9)return;
+    const i0=Math.max(0,Math.floor((Math.min(ax,bx,cx)-X0)/CS-.5)),i1=Math.min(GX-1,Math.ceil((Math.max(ax,bx,cx)-X0)/CS-.5)),j0=Math.max(0,Math.floor((Math.min(ay,by,cy)-Y0)/CS-.5)),j1=Math.min(GY-1,Math.ceil((Math.max(ay,by,cy)-Y0)/CS-.5));
+    for(let j=j0;j<=j1;j++){const py=Y0+(j+.5)*CS;for(let i=i0;i<=i1;i++){const px=X0+(i+.5)*CS,l1=((by-cy)*(px-cx)+(cx-bx)*(py-cy))/den,l2=((cy-ay)*(px-cx)+(ax-cx)*(py-cy))/den,l3=1-l1-l2;
+     if(l1<-1e-4||l2<-1e-4||l3<-1e-4)continue;const z=l1*az+l2*bz+l3*cz,dz=Math.abs(z-RF[Math.min(RX-1,Math.floor((px-X0)/RC))+Math.min(RY-1,Math.floor((py-Y0)/RC))*RX]);
+     if(dz>3.5)continue;const k=j*GX+i;if(dz<D[k]){D[k]=dz;H[k]=z}}}});
+   let filled=0;for(let k=0;k<H.length;k++)if(H[k]===H[k])filled++;
+   const at=(x,y)=>{const i=Math.floor((x-X0)/CS),j=Math.floor((y-Y0)/CS);if(i<0||j<0||i>=GX||j>=GY)return null;let h=H[j*GX+i];if(h===h)return h;
+    /* a seam between two meshes: the nearest filled neighbour */for(let r=1;r<=2;r++)for(let dj=-r;dj<=r;dj++)for(let di=-r;di<=r;di++){const ii=i+di,jj=j+dj;if(ii<0||jj<0||ii>=GX||jj>=GY)continue;h=H[jj*GX+ii];if(h===h)return h}return null};
+   const pt=(x,y,ref)=>{let best=null,bd=6;scan(x-.01,y-.01,x+.01,y+.01,(ax,ay,az,bx,by,bz,cx,cy,cz)=>{const den=(by-cy)*(ax-cx)+(cx-bx)*(ay-cy);if(Math.abs(den)<1e-9)return;
+     const l1=((by-cy)*(x-cx)+(cx-bx)*(y-cy))/den,l2=((cy-ay)*(x-cx)+(ax-cx)*(y-cy))/den,l3=1-l1-l2;if(l1<-1e-4||l2<-1e-4||l3<-1e-4)return;const z=l1*az+l2*bz+l3*cz,dz=Math.abs(z-ref);if(dz<bd){bd=dz;best=z}});return best};
+   return{at,pt,info:()=>({GX,GY,filled,X0,Y0})}})();
   /* the generated road, ground, walls, stands, trees and pit building are not drawn: what you see is the model */
   for(const o of scene.children.slice())if(o.userData.gen==='world'||o.userData.gen==='pits'){scene.remove(o);o.traverse(m=>{if(m.geometry&&m.geometry.dispose)m.geometry.dispose()})}
   OCC.length=0;grp.userData.gen='asis';scene.add(grp);
   /* v70: called every few frames: hide the small things beyond their distance (a long lens sees further) */
   let lodN=0;const lodTick=cm=>{if(!LODM.length)return;const zk=Math.min(6,Math.max(1,60/(cm.fov||60))),px=cm.position.x,py=cm.position.y,pz=cm.position.z;let n=0;
    for(const o of LODM){const d=Math.hypot(o.x-px,o.y-py,o.z-pz)-o.r,vis=d<o.d*zk;if(o.me.visible!==vis)o.me.visible=vis;if(vis)n++}lodN=n};
-  return{grp,tris,code:hd.code,los,lodTick,lodInfo:()=>[lodN,LODM.length],cell:(x,y)=>[OG.get(okey(x,y)),OGm.get(okey(x,y))],roles:(()=>{const r={};for(const c of hd.chunks){const k=hd.mats[c.m].role;r[k]=(r[k]||0)+c.i/3}return r})()}}
+  return{grp,tris,code:hd.code,los,lodTick,gnd:GND,lodInfo:()=>[lodN,LODM.length],cell:(x,y)=>[OG.get(okey(x,y)),OGm.get(okey(x,y))],roles:(()=>{const r={};for(const c of hd.chunks){const k=hd.mats[c.m].role;r[k]=(r[k]||0)+c.i/3}return r})()}}
  catch(e){console.warn('as-is circuit file unusable',e);return null}})();
 
 /* AUDIO_GUARD: never hand a non-finite number to the audio graph (it throws and kills the sound) */
@@ -4419,7 +4468,11 @@ function burst(f,q,du,vol,sine,pos){const A=AU.ctx;if(!A||!AU.on)return;const t=
 function shiftFx(up,k){if(!AU.ctx||!AU.on||k<.02)return;burst(up?2600:1900,2.6,.03,.34*k);burst(up?560:440,1.2,.055,.3*k);burst(118,0,.08,.38*k,true);
  if(up)burst(360+Math.random()*140,1.4,.045,.26*k);else{burst(240,1.1,.07,.2*k);for(let i=0;i<4;i++)setTimeout(()=>burst(160+Math.random()*280,1.3,.05,.2*k),45+i*65+Math.random()*30)}}
 function beep(f,du,vol,type){const A=AU.ctx;if(!A||!AU.on)return;const o=A.createOscillator(),g=A.createGain(),t=A.currentTime;o.type=type||'square';o.frequency.value=f;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.001,t+du);o.connect(g);g.connect(AU.master);o.start(t);o.stop(t+du+.05)}
-const sfx={hit(sev,x,y,lis){if(!AU.ctx)return;const d=Math.hypot(x-lis.x,y-lis.y),v=Math.min(1,sev/18)*Math.max(0,1-d/300);if(v<.02)return;const P=[x,HZ[lis.idx]||0,-y];burst(700,.7,.35,1.1*v,false,P);burst(95,0,.4,1.3*v,true,P);if(sev>8){setTimeout(()=>burst(2600,2,.5,.45*v,false,P),60);setTimeout(()=>burst(4200,3,.3,.25*v,false,P),140)}},
+const sfx={hit(sev,x,y,lis,kind,c){if(!AU.ctx||!AU.on)return;const d=Math.hypot(x-lis.x,y-lis.y),near=Math.max(0,1-d/320);if(near<=0)return;
+  /* v71.1: one sound per blow (the physics reports a crash as several growing impacts within a few hundredths of a second) */
+  const now=AU.ctx.currentTime;if(c){if(now-(c._sxT||-9)<.14&&sev<1.6*(c._sxS||0))return;c._sxT=now;c._sxS=sev}
+  const z=c?(c.z3??HZ[c.idx]??0)+.35:(HZ[lis.idx]||0),P=[x,z,-y],vol=Math.min(1,.35+sev/14)*near;
+  if(kind==='car'&&sev<5)sfx2.touch(P,vol);else sfx2.crash(P,sev,kind==='wall'&&c&&!STREET&&!(ASP&&c.pf)&&Math.abs(c.lt)>HW+12?'tyres':kind,vol)},
  radio(){beep(1250,.07,.08,'sine');setTimeout(()=>beep(950,.08,.07,'sine'),90)},
  light(on){on?beep(620,.18,.16):beep(1240,.5,.2)},
  pit(x,y,z){const P=x!=null?[x,z,-y]:null;[0,.11,.22,.33].forEach((t,i)=>setTimeout(()=>{burst(2600+i*90,4,.07,.45,false,P);burst(5200,6,.04,.2,false,P)},t*1000))},
@@ -4433,6 +4486,65 @@ const sfx={hit(sev,x,y,lis){if(!AU.ctx)return;const d=Math.hypot(x-lis.x,y-lis.y
  stone(x,y,z,v){if(!sfxOK())return;burst(3000+Math.random()*2500,3.5,.025,.35*v,false,[x,z,-y])},
  clack(x,y,z,v){if(!sfxOK())return;burst(1400+Math.random()*900,2.2,.07,.4*v,false,[x,z,-y]);burst(5200,4,.03,.15*v,false,[x,z,-y])},
  hiss(x,y,z){if(!sfxOK())return;burst(6500,.6,.9,.22,false,[x,z,-y])}};
+/* ---------- v71.1: more of the sounds around the cars, all synthesised and placed in 3D ----------
+   the pit stop (the jacks, the wheel guns loosening and tightening each wheel, wheels coming off and going on, the car dropping off the
+   jacks), crashes in layers (the thump of the blow, the crack of carbon, a concrete wall's boom or a tyre wall's dull thud, bits of carbon
+   crumbling off), a light touch between two cars, scraping along a wall, parts snapping off, and the moving wing flaps heard from inside */
+function sfxOut(P,ref){const A=AU.ctx,g=A.createGain();g.gain.value=1;
+ if(P){const p=mkPan(A,ref||6);if(p.positionX){p.positionX.value=P[0];p.positionY.value=P[1];p.positionZ.value=P[2]}else p.setPosition(P[0],P[1],P[2]);g.connect(p);p.connect(AU.master);p.connect(AU.wet)}else g.connect(AU.master);return g}
+/* one shaped sound, dt seconds from now: noise through a filter (n: f, q, ft), or a sine / saw / square sliding from f to f1 */
+function sg(out,dt,o){const A=AU.ctx,t=A.currentTime+Math.max(0,dt),du=Math.max(.012,o.du),g=A.createGain(),atk=Math.min(du*.5,o.atk||.004);
+ g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(Math.max(.0002,o.vol),t+atk);g.gain.exponentialRampToValueAtTime(.0001,t+du);g.connect(out);
+ if(o.type==='n'){const s=A.createBufferSource();s.buffer=AU.buf;const fl=A.createBiquadFilter();fl.type=o.ft||'bandpass';fl.frequency.value=o.f;fl.Q.value=o.q||1;s.connect(fl);fl.connect(g);s.start(t,Math.random()*.9,du+.05)}
+ else{const os=A.createOscillator();os.type=o.type==='w'?'sawtooth':o.type==='q'?'square':'sine';os.frequency.setValueAtTime(o.f,t);if(o.f1)os.frequency.exponentialRampToValueAtTime(o.f1,t+du);
+  if(o.lp){const fl=A.createBiquadFilter();fl.type='lowpass';fl.frequency.value=o.lp;os.connect(fl);fl.connect(g)}else os.connect(g);os.start(t);os.stop(t+du+.05)}}
+let SFX2N=0,SFX2T=0;const sfx2OK=()=>{if(!AU.ctx||!AU.on)return false;const n=AU.ctx.currentTime;if(n-SFX2T>.25){SFX2T=n;SFX2N=0}return ++SFX2N<=14};
+const sfx2={
+ /* an impact wrench: a fast hammer rattle (about 50 blows a second) over the air motor winding up as it undoes a nut, or bogging down as
+    it seats one, and the click of the trigger */
+ gun(P,du,vol,tight){if(!sfx2OK())return;const A=AU.ctx,out=sfxOut(P,5),t=A.currentTime;
+  const s=A.createBufferSource();s.buffer=AU.buf;const bp=A.createBiquadFilter();bp.type='bandpass';bp.frequency.value=2700+Math.random()*700;bp.Q.value=1.5;
+  const ch=A.createGain();ch.gain.value=.5;const lfo=A.createOscillator();lfo.type='square';lfo.frequency.value=44+Math.random()*12;const lg=A.createGain();lg.gain.value=.5;lfo.connect(lg);lg.connect(ch.gain);
+  const env=A.createGain();env.gain.setValueAtTime(.0001,t);env.gain.exponentialRampToValueAtTime(vol,t+.012);env.gain.setValueAtTime(vol,t+du*.8);env.gain.exponentialRampToValueAtTime(.0001,t+du);
+  s.connect(bp);bp.connect(ch);ch.connect(env);env.connect(out);s.start(t,Math.random()*.9,du+.05);lfo.start(t);lfo.stop(t+du+.05);
+  sg(out,0,{type:'w',f:tight?1700:750,f1:tight?950:1600,du,vol:vol*.16,lp:2800,atk:.02});sg(out,du-.012,{type:'n',f:5200,q:4,du:.03,vol:vol*.45})},
+ /* a jack going under the nose or the gearbox, or coming out: a short metal clunk with a ring to it */
+ jack(P,vol){if(!sfx2OK())return;const out=sfxOut(P,5);sg(out,0,{type:'s',f:150,f1:68,du:.14,vol:vol*.9});sg(out,0,{type:'n',f:520,q:1.2,du:.07,vol:vol*.6});sg(out,.004,{type:'s',f:2300,du:.2,vol:vol*.07})},
+ /* the car dropping off the jacks onto its new tyres */
+ land(P,vol){if(!sfx2OK())return;const out=sfxOut(P,6);sg(out,0,{type:'s',f:90,f1:46,du:.24,vol});sg(out,0,{type:'n',f:300,q:.8,du:.13,vol:vol*.5,ft:'lowpass'})},
+ /* a wheel coming off or going on, a tyre set down on the ground: a dull rubber thud */
+ tyre(P,vol){if(!sfx2OK())return;const out=sfxOut(P,5);sg(out,0,{type:'n',f:260,q:.7,du:.11,vol:vol*.7,ft:'lowpass'});sg(out,0,{type:'s',f:150,f1:85,du:.09,vol:vol*.55})},
+ /* a crash in layers: the thump of the blow, the crack of carbon (not into a tyre wall), a concrete wall's boom, carbon crumbling off */
+ crash(P,sev,kind,vol){if(!sfx2OK())return;const out=sfxOut(P,8),k=Math.min(1,sev/20),tw=kind==='tyres';
+  sg(out,0,{type:'s',f:68+Math.random()*25,f1:30,du:.22+.32*k,vol:vol*(.55+.6*k)});
+  if(!tw)sg(out,0,{type:'n',f:2100+Math.random()*900,q:.7,du:.05+.04*k,vol:vol*(.35+.55*k)});
+  sg(out,0,{type:'n',f:tw?220:620,q:.6,du:.12+.22*k,vol:vol*(.4+.45*k),ft:'lowpass'});
+  if(kind==='wall'&&sev>6)sg(out,0,{type:'n',f:140,q:.5,du:.35+.35*k,vol:vol*.65*k,ft:'lowpass'});
+  const n=Math.round((3+17*k)*(tw?.35:1));for(let i=0;i<n;i++)sg(out,.02+Math.random()*(.12+.55*k),{type:'n',f:1500+Math.random()*4300,q:2.5+Math.random()*3,du:.015+Math.random()*.035,vol:vol*k*(.12+.3*Math.random())})},
+ /* two cars touching lightly: a knock and the squeal of rubber on rubber or carbon */
+ touch(P,vol){if(!sfx2OK())return;const out=sfxOut(P,6);sg(out,0,{type:'n',f:850,q:1.6,du:.05,vol:vol*.55});sg(out,0,{type:'s',f:190,f1:110,du:.07,vol:vol*.5});if(Math.random()<.6)sg(out,.01,{type:'s',f:1800,f1:1300,du:.08,vol:vol*.07})},
+ /* a wing or a wheel tearing off: a snap, then the pieces clattering */
+ snap(P,vol){if(!sfx2OK())return;const out=sfxOut(P,7);sg(out,0,{type:'n',f:3200,q:1.4,du:.05,vol:vol*.7});sg(out,0,{type:'n',f:900,q:1,du:.09,vol:vol*.5});
+  for(let i=0;i<8;i++)sg(out,.05+Math.random()*.5,{type:'n',f:1700+Math.random()*3200,q:3,du:.02+Math.random()*.03,vol:vol*(.1+.22*Math.random())})},
+ /* an engine letting go: a muffled bang, then the rattle of it running down; a gearbox breaking: a heavy metallic clunk and a grind */
+ blow(P,vol,gb){if(!sfx2OK())return;const out=sfxOut(P,8);if(gb){sg(out,0,{type:'s',f:210,f1:90,du:.16,vol:vol*.8});sg(out,0,{type:'n',f:900,q:1.2,du:.1,vol:vol*.6});sg(out,.08,{type:'n',f:1500,q:1.5,du:.45,vol:vol*.25});return}
+  sg(out,0,{type:'n',f:180,q:.6,du:.45,vol,ft:'lowpass'});sg(out,0,{type:'s',f:60,f1:30,du:.5,vol:vol*.9});sg(out,0,{type:'n',f:2400,q:.8,du:.06,vol:vol*.5});
+  for(let i=0;i<10;i++)sg(out,.1+i*.07+Math.random()*.04,{type:'n',f:700+Math.random()*900,q:2,du:.04,vol:vol*(.3-.025*i)})},
+ /* the wing flaps moving (heard from inside the car only) */
+ flap(vol){if(!sfx2OK())return;const out=sfxOut(null);sg(out,0,{type:'n',f:1300,q:2,du:.04,vol:vol*.5});sg(out,.01,{type:'s',f:240,f1:150,du:.05,vol:vol*.35})}};
+/* the sounds of a pit stop, in time with the crew (see crewUpdate): S is the team's state, w the time into the work */
+function pitSfx(S,c,ph,gy,GA,camP){if(!AU.ctx||!AU.on)return;const w=ph.w,w0=S.pw??-9;S.pw=w;if(w0<-1&&w>.25)return;/* joined part-way (a camera cut): not everything at once */
+ const d=Math.hypot(camP.x-c.x,camP.z+c.y);if(d>110)return;const vol=Math.min(1,.55+12/(d+8)),cs=Math.cos(c.th),sn=Math.sin(c.th);
+ const at=(fx,fl,up)=>{const x=c.x+cs*fx-sn*fl,y=c.y+sn*fx+cs*fl;return[x,((GA&&GA.at(x,y))??gy)+up,-y]},X=a=>w0<a&&w>=a,sd=k=>((c.code.charCodeAt(0)*31+c.code.charCodeAt(2)*17+k*53)%100)/100;
+ if(X(.02)){sfx2.jack(at(FA+1.5,0,.25),vol);setTimeout(()=>sfx2.jack(at(RA-1.2,0,.25),vol*.9),40+sd(9)*40)}
+ for(let i=0;i<4;i++){const [wx,wl]=WHL[i],off=sd(i)*.09;
+  if(X(.08+off))sfx2.gun(at(wx,wl*1.15,TR),.26+sd(i+4)*.08,vol*.55,false);
+  if(X(.52+off*.5))sfx2.tyre(at(wx,wl*1.2,TR),vol*.35);
+  if(X(1.24+off*.4))sfx2.tyre(at(wx,wl*1.15,TR),vol*.5);
+  if(X(1.3+off))sfx2.gun(at(wx,wl*1.15,TR),.28+sd(i+8)*.08,vol*.6,true)}
+ /* a new front wing: the fixings undone and done up, the new wing clicking home */
+ if(c.svcWork&&c.svcWork.includes('front wing')&&ph.wd>2.35){if(X(1.9))sfx2.gun(at(FA+1.0,.3,.3),.3,vol*.45,false);if(X(ph.wd-.75))sfx2.jack(at(FA+1.1,0,.3),vol*.6);if(X(ph.wd-.6))sfx2.gun(at(FA+1.0,-.3,.3),.3,vol*.5,true)}
+ if(X(ph.wd-.2)){sfx2.land(at(0,0,.2),vol);sfx2.jack(at(FA+1.5,0,.2),vol*.7);setTimeout(()=>sfx2.jack(at(RA-1.2,0,.2),vol*.6),35)}}
 let SFXB=0,SFXT=0;function sfxOK(){if(!AU.ctx||!AU.on)return false;const n=AU.ctx.currentTime;if(n-SFXT>.1){SFXT=n;SFXB=0}return ++SFXB<=5}
 function audioFrame(dt,lis){const A=AU.ctx;if(!A||!AU.on)return;const t=A.currentTime,tc=.035;
  {const L=A.listener,p=cam.position,f=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quaternion),u=new THREE.Vector3(0,1,0).applyQuaternion(cam.quaternion);
@@ -4479,6 +4591,11 @@ function audioFrame(dt,lis){const A=AU.ctx;if(!A||!AU.on)return;const t=A.curren
  N_.squeal.g.gain.setTargetAtTime(!sL&&!sR?(v>8?cl((sl-.11)*2.5,0,1)*.2+(lis.lock?.2:0):0)+Math.max(0,(lis.wspin||0)-.1)*.32:0,t,.05);N_.squeal.f.frequency.setTargetAtTime(Math.max(200,1500+sl*2600),t,.05);
  N_.wind.g.gain.setTargetAtTime(Math.pow(Math.min(1,v/90),2)*.2,t,.1);
  N_.scrape.g.gain.setTargetAtTime(lis.scrape>0?.25:0,t,.03);
+ /* v71.1: sliding along a wall: carbon grinding on concrete (softer against tyres) */
+ {const on2=lis.wallT!=null&&SIMT()-lis.wallT<.1&&v>3,k=on2?Math.min(1,v/45):0;if(!N_.wscr)N_.wscr=AU.nz.wscr=(()=>{const A=AU.ctx,s0=A.createBufferSource();s0.buffer=AU.buf;s0.loop=true;const f1=A.createBiquadFilter();f1.type='bandpass';f1.frequency.value=1500;f1.Q.value=1.1;const g=A.createGain();g.gain.value=0;s0.connect(f1);f1.connect(g);g.connect(AU.master);s0.start();return{g,f:f1}})();
+  N_.wscr.g.gain.setTargetAtTime(k*(lis.wallTyre?.12:.32)*(.75+.5*Math.random()),t,.03);N_.wscr.f.frequency.setTargetAtTime((lis.wallTyre?500:1300)+v*14,t,.05)}
+ /* v71.1: the wing flaps moving, heard from inside the car */
+ {const fo=(lis.aero||0)>.5?1:0;if(lis._flp!==undefined&&lis._flp!==fo&&v>20&&ONBOARD[CAM.live])sfx2.flap(CAM.live==='cockpit'?.5:.25);lis._flp=fo}
  const rel=relOf(lis.idx);N_.crowd.g.gain.setTargetAtTime(rel<ZL+20?.06:.0,t,.4)}
 
 /* ===================== HUD ===================== */
@@ -5822,7 +5939,7 @@ function settingsHTML(){const b=(k,t)=>`<button data-k="${k}">${t}</button>`,sec
   h+=sec('Car set-up')+`<div class="srow sdesc" style="color:${lk==='parc'?'#ffb000':'#9fd8ff'}">${lk==='parc'?'Parc fermé: the set-up is locked from qualifying on, as in F1. Brake bias and diff can still be changed from the steering wheel (also the on-screen BB / DIFF buttons), and the front wing angle at a pit stop.':lk==='stop'?'On track: changes are fitted by your mechanics at your next pit stop (press BOX). In the garage they are fitted straight away.':'In the garage: changes are fitted straight away. Brake bias and diff can also be changed on track.'}</div>`;
   if(lk==='parc')h+=`<div class="srow"><label>Front wing at next stop<b id="fwn">${PLAYER.fwNext>0?'+':''}${PLAYER.fwNext||0} click${Math.abs(PLAYER.fwNext||0)===1?'':'s'}</b></label><div style="display:flex;gap:6px"><button data-k="fw_m" style="flex:1">− less wing</button><button data-k="fw_p" style="flex:1">+ more wing</button></div><div class="sdesc">More front wing: sharper turn-in and less understeer, a touch more drag. Fitted at your next stop.</div></div>`;
   for(const k of ['w','b','r','s','af','ar','c','k','a','x','bb','d','g']){const live=k==='bb'||k==='x',off=lk==='parc'&&!live,pd=!live&&lk==='stop'&&pend[k]!=null,v=pd?pend[k]:(su[k]||0),pct=Math.round(50+v*50);h+=`<div class="srow"${off?' style="opacity:.45"':''}><label>${lab[k][0]}${live?' <span style="color:#30d158;font-size:9px">LIVE</span>':''}<b id="sv_${k}">${pct}%${pd?' → next stop':''}</b></label><input type="range" min="0" max="100" step="5" value="${pct}" data-su="${k}"${off?' disabled':''}><div class="ends"><span>${lab[k][1]}</span><span>${lab[k][2]}</span></div><div class="sdesc">${SU_DESC[k]||""}</div></div>`}}
- h+=sec('Session · game v71')+(R.type==='R'&&!RPL.on&&!LC.on&&HL.clips.length+HL.pend.length?b('hl','🎬 Race highlights ('+(HL.clips.length+HL.pend.length)+' moments so far)'):'')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
+ h+=sec('Session · game v71.1')+(R.type==='R'&&!RPL.on&&!LC.on&&HL.clips.length+HL.pend.length?b('hl','🎬 Race highlights ('+(HL.clips.length+HL.pend.length)+' moments so far)'):'')+b('skip','Skip to end of session ⏭')+b('quit','Quit to menu')+`<button data-k="close" class="cls">Close</button>`;return h}
 function settingsAct(k){{const ca=ctlAct(k);if(ca==='closed')return;if(ca){$('sheet').innerHTML=settingsHTML();return}}if(k==='look'){lookApply(!LOOK.on);try{localStorage.setItem('glgp_look',LOOK.on?'enhanced':'classic')}catch(e){}}if(k==='shadows'){const on=!renderer.shadowMap.enabled;renderer.shadowMap.enabled=on;sun.castShadow=on;scene.traverse(o=>{if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true)}})}
  if(k==='res'){/* Auto -> 100% -> 85% -> 67% -> 50% -> Auto; a fixed choice switches the automatic scaler off so it can't undo it, and is remembered */const steps=['auto',1,.85,.67,.5],i=steps.indexOf(PERF.auto?'auto':PERF.fix);resSet(steps[(i+1)%steps.length]);try{localStorage.setItem('glgp_res',String(PERF.auto?'auto':PERF.fix))}catch(e){}}
  if(k==='shake')CAM.shakeOn=!CAM.shakeOn;if(k==='mirror')SET.mirror=!SET.mirror;if(k==='refl')SET.refl=!SET.refl&&!!CUBECAM;if(k==='mblur'){SET.mblur=!SET.mblur;try{localStorage.setItem('glgp_mblur',SET.mblur?'on':'off')}catch(e){}}if(k==='flare'){SET.flare=!SET.flare;try{localStorage.setItem('glgp_flare',SET.flare?'on':'off')}catch(e){}}if(k==='fps'){SET.fps=!SET.fps;$('fps').style.display=SET.fps?'block':'none'}
@@ -6044,7 +6161,7 @@ function renderAll(){rN++;const c=VIEW.car,v=CAR3D[c.k],mode=CAM.live,onb=!!ONBO
  if(PERF.k>=.8||(rN&1)===0)renderer.shadowMap.needsUpdate=true;if(MB&&SET.mblur)MB.render();else{if(MB)MB.reset();renderer.render(scene,cam)}
  if(FLARE)FLARE.render();
 }
-for(const c of cars)c.ev2=c.ev,c.ev=(t,a,b)=>{c.ev2(t,a,b);if(t==='hit'&&!HEADLESS)sfx.hit(a,c.x,c.y,VIEW.car);if(t==='stop'&&!HEADLESS&&Math.hypot(c.x-VIEW.car.x,c.y-VIEW.car.y)<160)setTimeout(()=>sfx.pit(c.x,c.y,(HZ[c.idx]||0)+.4),300)};
+for(const c of cars)c.ev2=c.ev,c.ev=(t,a,b)=>{c.ev2(t,a,b);if(t==='hit'&&!HEADLESS)sfx.hit(a,c.x,c.y,VIEW.car,b,c);if(t==='break'&&!HEADLESS&&Math.hypot(c.x-VIEW.car.x,c.y-VIEW.car.y)<200){const P=[c.x,(HZ[c.idx]||0)+.4,-c.y];if(a==='eng'||a==='gb')sfx2.blow(P,.9,a==='gb');else sfx2.snap(P,.8)}if(t==='stop'&&!HEADLESS&&Math.hypot(c.x-VIEW.car.x,c.y-VIEW.car.y)<160)setTimeout(()=>sfx.pit(c.x,c.y,(HZ[c.idx]||0)+.4),300)};
 /* static batching: fixed scenery meshes that share a material are merged per 250 m cell into one mesh, so the GPU gets one draw call
    instead of dozens (the phone's frame time was dominated by draw-call overhead, not triangles). Cars, people, instanced, animated,
    transparent and hidden things are left alone; colour changes made through a shared material (lamps, start lights) keep working. */
@@ -6079,7 +6196,7 @@ return {ev:x=>eval(x)};
  const SCN_FILES={0:{url:'spa-model.bin',txt:['spa-model-1.txt','spa-model-2.txt'],mb:13},7:{url:'montreal-model.bin',txt:'montreal-model.txt',mb:9}};
  const real=p=>{const m=Math.floor(p/60);return m+':'+(p-60*m).toFixed(1).padStart(4,'0')};
  const grp=(lab,key,items)=>`<div class="grp"><label>${lab}</label><div class="opts">${items.map(([v,t,s])=>`<button data-key="${key}" data-v="${v}" class="${S[key]==v?'sel':''}">${t}${s?`<small>${s}</small>`:''}</button>`).join('')}</div></div>`;
- function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v71</b></div>`+
+ function draw(){M.innerHTML=`<h1>GRIP LAB <span>GP</span></h1><div class="sub">22 cars · 11 teams · real circuits · practice, qualifying and race · <b style="color:#ffd400">v71.1</b></div>`+
   grp('CIRCUIT','track',TRACKS.map((t,i)=>[i,t.name,t.km.toFixed(2)+' km · '+t.climb+' m elevation · real pole ≈ '+real(t.pole)]))+
   grp('WEEKEND','format',[['full','Full weekend','Practice → Q1/Q2/Q3 → Race'],['qr','Qualifying + race',''],['r','Race only','']])+
   grp('RACE LENGTH','laps',[[5,'5 laps'],[10,'10 laps'],[20,'20 laps'],[30,'30 laps'],['h','Half distance',Math.ceil(FULL(S.track)/2)+' laps'],['f','Full distance',FULL(S.track)+' laps · 305 km']])+
